@@ -22,6 +22,22 @@ uv run streamlit run demo/app.py
 
 > 자동 수집한 공고 원문과 DB(`data/contests/`)는 수집처 약관 때문에 저장소에 올리지 않습니다. 그래서 **수집한 공고** 탭은 비어 있고, 공고는 링크로 직접 넣습니다.
 
+## 웹 배포 (Streamlit Community Cloud)
+
+설치 없이 주소로 접속할 수 있게 배포합니다. 무료입니다.
+
+1. [share.streamlit.io](https://share.streamlit.io)에 GitHub 계정으로 로그인합니다. 처음이면 `AIHackathon4` 조직 저장소에 접근하도록 권한을 허용합니다.
+2. **Create app**을 누르고 다음과 같이 설정합니다.
+   - 저장소: `AIHackathon4/demo`
+   - 브랜치: `main`
+   - Main file: `demo/app.py`
+3. **Advanced settings**에서 다음을 설정합니다.
+   - Python 3.10 선택
+   - **Secrets**에 [`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example)의 내용을 실제 값으로 채워 붙여 넣기
+4. **Deploy**를 누르면 몇 분 뒤 `https://<이름>.streamlit.app` 주소가 생깁니다.
+
+`APP_PASSWORD`를 넣으면 비밀번호를 아는 사람만 들어올 수 있습니다. 주소가 퍼져도 우리 API 키로 비용이 나가지 않게 막아 줍니다. 의존성은 `requirements.txt`에 있고, `uv.lock`에서 `uv export`로 만들었습니다.
+
 ## 검증
 
 정답 데이터(실제로 참여할 수 있었는지) 없이 판정을 검증하고, 개인화 유무와 역할 분담의 효과를 비교합니다. LLM 응답은 `data/contests/feasibility_cache.jsonl`에 캐시됩니다.

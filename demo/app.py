@@ -1,14 +1,20 @@
 """PODO 데모: 공고를 가져와 구조화하고, 내 프로필로 참여 가능성과 준비 일정을 본다.
 
 실행: uv run streamlit run demo/app.py
+배포(Streamlit Community Cloud): README의 "웹 배포" 참고. APP_PASSWORD를 설정하면 비밀번호를 맞혀야 열린다.
 """
 
+import hmac
 import json
 import os
-from html import escape
 import sqlite3
+import sys
 from datetime import date
+from html import escape
 from pathlib import Path
+
+# 배포 환경에서 패키지가 설치되지 않았어도 src/의 aihack4를 찾을 수 있게 한다.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import pandas as pd
 import streamlit as st
@@ -26,6 +32,24 @@ load_dotenv(ROOT / ".env")
 
 st.set_page_config(page_title="PODO · 포기 말고 도전", page_icon="🍇", layout="centered")
 st.markdown(style.CSS, unsafe_allow_html=True)
+
+
+def password_gate() -> None:
+    """APP_PASSWORD가 설정된 배포 환경에서만, 비밀번호를 맞혀야 화면을 연다(LLM API 비용 보호)."""
+    password = os.environ.get("APP_PASSWORD")
+    if not password or st.session_state.get("unlocked"):
+        return
+    st.markdown(style.hero(), unsafe_allow_html=True)
+    entered = st.text_input("데모 비밀번호", type="password")
+    if entered and hmac.compare_digest(entered.encode(), password.encode()):
+        st.session_state["unlocked"] = True
+        st.rerun()
+    if entered:
+        st.error("비밀번호가 달라요.")
+    st.stop()
+
+
+password_gate()
 
 FIELD_LABELS = {"deadline": "마감", "eligibility": "참가 자격", "team": "팀 조건", "submissions": "제출물"}
 UNDERGRAD = {"yes": "가능", "no": "불가", "unknown": "명시 없음"}
