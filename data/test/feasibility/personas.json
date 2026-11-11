@@ -1,0 +1,63 @@
+[
+  {
+    "id": "P1",
+    "label": "1학년, 공모전 처음, 혼자, 역량 거의 없음",
+    "profile": {
+      "status": "재학생", "grade": 1, "school": "한국대학교", "major": "경영학", "region": "서울",
+      "skills": {"글쓰기": "입문"}, "experience": "처음", "goal": "경험 쌓기",
+      "team": "혼자", "team_size": 1, "teammate_skills": [],
+      "weekday_hours": 1, "weekend_hours": 3
+    }
+  },
+  {
+    "id": "P2",
+    "label": "3학년, 참가 경험, 혼자, 기획·디자인 가능",
+    "profile": {
+      "status": "재학생", "grade": 3, "school": "한국대학교", "major": "시각디자인", "region": "경기",
+      "skills": {"기획서 작성": "가능", "발표·PPT": "가능", "디자인(Figma)": "능숙"}, "experience": "참가 경험",
+      "goal": "경험 쌓기", "team": "혼자", "team_size": 1, "teammate_skills": [],
+      "weekday_hours": 2, "weekend_hours": 4
+    }
+  },
+  {
+    "id": "P3",
+    "label": "4학년, 수상 경험, 3인 팀, 수상 목표",
+    "profile": {
+      "status": "재학생", "grade": 4, "school": "한국대학교", "major": "미디어학", "region": "서울",
+      "skills": {"영상 편집": "능숙", "사진 촬영": "가능", "기획서 작성": "가능"}, "experience": "수상 경험",
+      "goal": "수상 목표", "team": "팀 있음", "team_size": 3, "teammate_skills": ["디자인(Figma)", "글쓰기"],
+      "weekday_hours": 2, "weekend_hours": 5
+    }
+  },
+  {
+    "id": "P4",
+    "label": "2학년, 시험 기간이 일정 중간에 걸림",
+    "profile": {
+      "status": "재학생", "grade": 2, "school": "한국대학교", "major": "국어국문학", "region": "강원",
+      "skills": {"사진 촬영": "가능", "글쓰기": "가능"}, "experience": "참가 경험", "goal": "경험 쌓기",
+      "team": "혼자", "team_size": 1, "teammate_skills": [],
+      "weekday_hours": 1, "weekend_hours": 3
+    },
+    "blocked_offsets": [[4, 11, "중간고사"]]
+  },
+  {
+    "id": "P5",
+    "label": "휴학생, 개발 역량, 시간 많음, 팀원 구하는 중",
+    "profile": {
+      "status": "휴학생", "grade": 3, "school": "한국대학교", "major": "컴퓨터공학", "region": "대전",
+      "skills": {"Python": "능숙", "데이터 분석": "가능", "웹 개발": "가능"}, "experience": "참가 경험",
+      "goal": "수상 목표", "team": "팀원 구하는 중", "team_size": 1, "teammate_skills": [],
+      "weekday_hours": 4, "weekend_hours": 5
+    }
+  },
+  {
+    "id": "P6",
+    "label": "아르바이트 병행, 시간 매우 적음, 영상 편집 가능",
+    "profile": {
+      "status": "재학생", "grade": 2, "school": "한국대학교", "major": "사회학", "region": "부산",
+      "skills": {"영상 편집": "가능"}, "experience": "처음", "goal": "경험 쌓기",
+      "team": "혼자", "team_size": 1, "teammate_skills": [],
+      "weekday_hours": 0.5, "weekend_hours": 1
+    }
+  }
+]

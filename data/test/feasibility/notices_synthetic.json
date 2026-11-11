@@ -1,0 +1,54 @@
+[
+  {
+    "id": "S1",
+    "note": "합성: 팀 필수 개발 해커톤형",
+    "notice": {
+      "is_contest": true, "open_to_undergraduates": "yes",
+      "title": "2026 청년 공공데이터 활용 서비스 개발 공모전", "organizer": "가상데이터진흥원",
+      "deadline": "2026-12-14", "deadline_time": "18:00",
+      "eligibility": ["전국 대학생 및 대학원생"], "team_min": 2, "team_max": 4,
+      "submissions": ["서비스 기획서 10쪽 이내", "작동하는 웹 또는 앱 프로토타입", "3분 이내 시연 영상"],
+      "required_skills": ["웹 개발", "데이터 분석"], "topics": ["공공데이터를 활용한 생활 문제 해결"],
+      "prize": "대상 300만원", "evidence": []
+    }
+  },
+  {
+    "id": "S2",
+    "note": "합성: 개인 영상 공모전",
+    "notice": {
+      "is_contest": true, "open_to_undergraduates": "yes",
+      "title": "2026 탄소중립 실천 숏폼 영상 공모전", "organizer": "가상환경재단",
+      "deadline": "2026-12-07", "deadline_time": "23:59",
+      "eligibility": ["대한민국 국민 누구나"], "team_min": null, "team_max": 2,
+      "submissions": ["60초 이내 세로형 숏폼 영상 1편", "영상 설명서 1장"],
+      "required_skills": ["영상 편집"], "topics": ["일상 속 탄소중립 실천"],
+      "prize": "최우수상 100만원", "evidence": []
+    }
+  },
+  {
+    "id": "S3",
+    "note": "합성: 긴 논문형 공모전",
+    "notice": {
+      "is_contest": true, "open_to_undergraduates": "yes",
+      "title": "제12회 대학생 정책 논문 공모전", "organizer": "가상정책연구원",
+      "deadline": "2026-12-21", "deadline_time": "17:00",
+      "eligibility": ["국내 대학 학부 재학생 및 휴학생"], "team_min": 1, "team_max": 3,
+      "submissions": ["정책 제안 논문 A4 15~20쪽(참고문헌 제외)", "요약문 1쪽"],
+      "required_skills": ["자료 조사", "논문 작성"], "topics": ["청년 주거 정책"],
+      "prize": "대상 200만원", "evidence": []
+    }
+  },
+  {
+    "id": "S4",
+    "note": "합성: 짧은 마감 디자인 공모전",
+    "notice": {
+      "is_contest": true, "open_to_undergraduates": "yes",
+      "title": "2026 지역축제 포스터 디자인 공모전", "organizer": "가상문화재단",
+      "deadline": "2026-11-30", "deadline_time": "18:00",
+      "eligibility": ["디자인에 관심 있는 대학생 누구나"], "team_min": null, "team_max": 1,
+      "submissions": ["A2 포스터 디자인 시안 1점(PDF)", "디자인 의도 설명 300자"],
+      "required_skills": ["그래픽 디자인"], "topics": ["가을 지역 축제 홍보"],
+      "prize": "최우수상 50만원", "evidence": []
+    }
+  }
+]
