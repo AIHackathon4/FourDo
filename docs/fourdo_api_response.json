@@ -1,0 +1,185 @@
+{
+  "meta": {
+    "analysis_id": "demo-0001",
+    "is_demo": true,
+    "generated_at": "2026-11-12T21:00:00+09:00",
+    "personalization_enabled": true
+  },
+
+  "posting": {
+    "title": "[샘플] 대학생 아이디어 공모전",
+    "organizer": "[샘플 주최기관]",
+    "type": "contest",
+    "source_url": "https://example.com/posting",
+    "deadline": "2026-12-10T18:00:00+09:00",
+    "d_day": 28,
+    "extracted_by": "ai",
+    "calculated_by": "code"
+  },
+
+  "profile_snapshot": {
+    "grade_major": "3학년 · 인공지능",
+    "weekly_hours": 12,
+    "busy_schedule": [
+      { "label": "중간고사", "from": "2026-11-16", "to": "2026-11-20" }
+    ],
+    "skills": ["기획"],
+    "experience": "영상 제작 경험 없음",
+    "team_status": "팀 없음",
+    "profile_completeness": 0.7
+  },
+
+  "requirements": [
+    {
+      "id": "req-1",
+      "label": "대학생 · 재학 중",
+      "posting_criterion": "대학(원)생",
+      "user_value": "재학 중",
+      "status": "met",
+      "source": "code",
+      "note": null
+    },
+    {
+      "id": "req-2",
+      "label": "팀 구성",
+      "posting_criterion": "2~4인 팀",
+      "user_value": "팀 없음",
+      "status": "caution",
+      "source": "code",
+      "note": "팀원 구하기가 필요해요"
+    },
+    {
+      "id": "req-3",
+      "label": "제출물",
+      "posting_criterion": "기획서 + 시제품 영상",
+      "user_value": "영상 제작 경험 없음",
+      "status": "lacking",
+      "source": "ai",
+      "note": "영상 제작 학습 시간이 필요해요"
+    },
+    {
+      "id": "req-4",
+      "label": "수상 후 의무 사항",
+      "posting_criterion": "공고에 명확한 기재 없음",
+      "user_value": null,
+      "status": "needs_check",
+      "source": "ai",
+      "note": "공식 공고에서 확인이 필요해요"
+    }
+  ],
+
+  "readiness": {
+    "level": "medium",
+    "label": "해볼 만해요 · 시간이 변수",
+    "reasons": [
+      "참가 자격은 충족해요",
+      "팀 구성과 영상 제작 준비가 필요해요"
+    ],
+    "score": null,
+    "score_verified": false,
+    "disclaimer": "준비도는 합격 확률이 아니에요."
+  },
+
+  "time_budget": {
+    "required_hours_min": 28,
+    "required_hours_max": 36,
+    "available_hours": 34,
+    "available_weeks": 4,
+    "calculated_by": "code",
+    "feasibility": "tight"
+  },
+
+  "this_week": {
+    "title": "주제 후보 3개 정리하고 공고 평가기준 읽기",
+    "estimated_hours": 6,
+    "note": "목~일에 몰아서 해요"
+  },
+
+  "blockers": [
+    {
+      "id": "blk-1",
+      "description": "팀원이 없어요",
+      "solution": "학과·동아리 커뮤니티에서 팀원 모집, 또는 개인 참가 가능 여부 확인",
+      "severity": "high"
+    },
+    {
+      "id": "blk-2",
+      "description": "영상 제작 경험이 없어요",
+      "solution": "튜토리얼 먼저 보기, 영상 대신 이미지 시안으로 범위 줄이기",
+      "severity": "medium"
+    }
+  ],
+
+  "plan": {
+    "total_estimated_hours_min": 28,
+    "total_estimated_hours_max": 36,
+    "available_hours": 34,
+    "weeks": [
+      {
+        "week": 1,
+        "label": "주제",
+        "is_rest_week": false,
+        "tasks": [
+          { "title": "주제 후보 3개 정리", "hours": 3, "source": "ai" },
+          { "title": "공고 평가기준 읽기", "hours": 3, "source": "ai" }
+        ]
+      },
+      {
+        "week": 2,
+        "label": "중간고사 주간",
+        "is_rest_week": true,
+        "tasks": []
+      },
+      {
+        "week": 3,
+        "label": "기획서",
+        "is_rest_week": false,
+        "tasks": [
+          { "title": "영상 제작 튜토리얼", "hours": 4, "source": "ai" },
+          { "title": "기획서 초안 작성", "hours": 10, "source": "ai" }
+        ]
+      },
+      {
+        "week": 4,
+        "label": "영상, 제출",
+        "is_rest_week": false,
+        "tasks": [
+          { "title": "시제품 영상 제작", "hours": 8, "source": "ai" },
+          { "title": "최종 검토 및 제출", "hours": 2, "source": "ai" }
+        ]
+      }
+    ],
+    "fallbacks": [
+      "팀원 구하기",
+      "영상 대신 이미지 시안으로 범위 줄이기",
+      "다음 회차 알림 받기"
+    ]
+  },
+
+  "personalization_compare": {
+    "generic": {
+      "badge": "프로필 없음",
+      "lines": [
+        "아이디어를 구상하고 기획서를 작성하세요",
+        "충분한 시간을 두고 준비하세요",
+        "팀원을 구해 역할을 나눠보세요"
+      ],
+      "limitation": "언제, 얼마나, 무엇부터인지 알 수 없어요"
+    },
+    "personalized": {
+      "badge": "개인화 70%",
+      "lines": [
+        { "when": "이번 주", "text": "주제 후보 3개 · 약 6시간" },
+        { "when": "2주차", "text": "중간고사 주간이라 쉬어가요" },
+        { "when": "3~4주차", "text": "영상 경험이 없어 튜토리얼 4h 먼저" }
+      ],
+      "applied_profile": "3학년 · 주 12시간 · 기획 가능 · 팀 없음 반영"
+    },
+    "is_demo": true
+  },
+
+  "uncertainty": {
+    "needs_check_count": 1,
+    "message": "확인 필요 항목은 공식 공고에서 꼭 확인하세요."
+  }
+}
