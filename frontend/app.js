@@ -1,6 +1,6 @@
 /* FourDo 프론트엔드 (데모)
-   DATA는 docs/fourdo_api_response.json 과 같은 구조예요.
-   백엔드가 연결되면 DATA 대신 fetch 결과를 render*()에 넘기면 됩니다. */
+   DATA는 docs/fourdo_api_response.json 과 같은 구조
+   백엔드가 연결되면 DATA 대신 fetch 결과를 render*()에 넘기면 됨. */
 const DATA = {
   meta: { is_demo: true },
   posting: { title: "[샘플] 대학생 아이디어 공모전", organizer: "[샘플 주최기관]", deadline: "2026-12-10T18:00:00+09:00" },
@@ -140,7 +140,7 @@ document.querySelector(".toggle").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) renderCompare(b.dataset.p === "on");
 });
 
-/* 서비스 신뢰도: 실제 검수 결과가 없으면 '측정 전'으로 표시 (수치를 지어내지 않아요) */
+/* 서비스 신뢰도: 실제 검수 결과가 없으면 '측정 전'으로 표시 (수치를 내지 않음) */
 function renderTrust() {
   $("#trust").innerHTML = `
   <div class="hero dark"><h1>AI의 분석, 어디까지 믿을 수 있을까요?</h1>
