@@ -10,8 +10,21 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="grape" viewBox="0 0 200 240">
+    <rect x="94" y="14" width="12" height="42" rx="6" fill="#8BC34A"/>
+    <path d="M104 30c4-16 18-24 34-24-2 16-14 26-34 24z" fill="#C4F45B"/>
+    <circle cx="58" cy="92" r="34" fill="#8E52C8"/>
+    <circle cx="142" cy="92" r="34" fill="#8E52C8"/>
+    <circle cx="100" cy="84" r="36" fill="#A97BE0"/>
+    <circle cx="86" cy="72" r="8" fill="#E6D4FA"/>
+    <circle cx="78" cy="142" r="34" fill="#7A3FB5"/>
+    <circle cx="124" cy="142" r="34" fill="#9B5BD6"/>
+    <circle cx="100" cy="196" r="32" fill="#6C2DB0"/>
+  </symbol>
+</svg>
 <header class="top">
-  <button class="logo" data-go="input" aria-label="FourDo 처음으로"><span class="mark" aria-hidden="true"></span>FourDo</button>
+  <button class="logo" data-go="input" aria-label="FourDo 처음으로"><svg class="mark" aria-hidden="true"><use href="#grape"/></svg>FourDo</button>
   <nav aria-label="주 메뉴">
     <button data-go="input" data-nav="input">분석하기</button>
     <button disabled title="준비 중인 기능이에요">내 도전 기록</button>
@@ -25,6 +38,7 @@
   <div class="hero dark">
     <h1>좋은 기회, 놓치지 않도록.</h1>
     <p class="lime-line">지금의 나에게 맞는 도전인지 확인해 보세요.</p>
+    <svg class="grape-hero" aria-hidden="true"><use href="#grape"/></svg>
   </div>
   <form id="form" class="wrap card form">
     <label class="full">공고 링크 또는 모집요강
