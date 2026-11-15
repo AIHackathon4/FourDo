@@ -1,6 +1,6 @@
 /* FourDo 프론트엔드 (데모)
-   DATA는 docs/fourdo_api_response.json 과 같은 구조
-   백엔드가 연결되면 DATA 대신 fetch 결과를 render*()에 넘기면 됨. */
+   DATA는 docs/fourdo_api_response.json 과 같은 구조예요.
+   백엔드가 연결되면 DATA 대신 fetch 결과를 render*()에 넘기면 됩니다. */
 const DATA = {
   meta: { is_demo: true },
   posting: { title: "[샘플] 대학생 아이디어 공모전", organizer: "[샘플 주최기관]", deadline: "2026-12-10T18:00:00+09:00" },
@@ -37,6 +37,16 @@ const DATA = {
     { name: "개인화 실행 계획 적합도" }
   ]
 };
+/* 하루별 할 일 (데모). 실제 연결 시: 시간표 이미지 → 수업 시간 추출 → 코드가 남는 시간 계산 → AI가 할 일 배치 */
+DATA.daily = [
+  { d: "월", date: "11/16", free: 5, classes: [["09:00–10:30", "자료구조"], ["13:00–15:00", "오픈SW플랫폼"]], todos: [["19:00–20:30", "주제 후보 1차 정리", 1.5]] },
+  { d: "화", date: "11/17", free: 6, classes: [["10:30–12:00", "수치해석"]], todos: [["20:00–21:00", "공고 평가기준 읽기", 1]] },
+  { d: "수", date: "11/18", free: 4, classes: [["09:00–10:30", "자료구조"], ["15:00–17:00", "인공지능 개론"]], todos: [] },
+  { d: "목", date: "11/19", free: 6, classes: [["10:30–12:00", "수치해석"]], todos: [["13:00–14:30", "주제 후보 3개 확정", 1.5]] },
+  { d: "금", date: "11/20", free: 5, classes: [["13:00–15:00", "오픈SW플랫폼"]], todos: [] },
+  { d: "토", date: "11/21", free: 8, classes: [], todos: [["10:00–12:00", "기획서 방향 메모", 2]] },
+  { d: "일", date: "11/22", free: 8, classes: [], todos: [] }
+];
 const STATUS = { met: "충족", caution: "주의", lacking: "부족", needs_check: "확인 필요" };
 const SRC = { code: "코드 판정", ai: "AI 추출" };
 const $ = (s, r = document) => r.querySelector(s);
@@ -65,7 +75,7 @@ chips($("#skills"), ["기획", "디자인", "개발", "영상", "발표", "글�
 chips($("#team"), ["팀 없음", "팀원 1~2명 있음", "팀 구성 완료"], false);
 
 /* 분석 진행 (데모용 시뮬레이션) */
-const STEPS = ["공고 핵심 정보 파악", "지원 조건 및 일정 확인", "개인별 준비 시간 계산", "맞춤형 실행 계획 구성"];
+const STEPS = ["공고 핵심 정보 파악", "지원 조건 및 일정 확인", "시간표 기반 가용 시간 계산", "하루별 맞춤 할 일 구성"];
 $("#form").addEventListener("submit", e => {
   e.preventDefault(); go("progress");
   const list = $("#stepList"), bar = $("#bar"); let i = 0;
@@ -76,7 +86,7 @@ $("#form").addEventListener("submit", e => {
     }).join("");
     bar.style.width = (i / STEPS.length * 100) + "%";
     if (i++ < STEPS.length) setTimeout(tick, 900);
-    else { renderResult(); renderPlan(); go("result"); }
+    else { renderResult(); renderPlan(); renderDaily(); go("result"); }
   };
   tick();
 });
@@ -122,7 +132,8 @@ function renderPlan() {
     <div class="weeks">${d.weeks.map(w => `<div class="week ${w.rest ? "rest" : ""}"><b>${w.w}주 · ${w.label}</b>
       <ul>${w.tasks.map(k => `<li><span>${k[0]}</span><span>${k[1]}h</span></li>`).join("") || "<li>쉬어가요</li>"}</ul></div>`).join("")}</div></div>
     <div class="card"><h3>시간이 모자라면</h3><ul class="plain">${d.fallbacks.map(f => `<li>${f}</li>`).join("")}</ul></div></div>
-  <div class="actions"><button class="btn primary" data-go="compare">개인화 비교 보기</button>
+  <div class="actions"><button class="btn primary" data-go="daily">하루별 할 일 보기</button>
+    <button class="btn" data-go="compare">개인화 비교 보기</button>
     <button class="btn" data-go="result">결과로 돌아가기</button></div></div>`;
 }
 
@@ -140,7 +151,7 @@ document.querySelector(".toggle").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) renderCompare(b.dataset.p === "on");
 });
 
-/* 서비스 신뢰도: 실제 검수 결과가 없으면 '측정 전'으로 표시 (수치를 내지 않음) */
+/* 서비스 신뢰도: 실제 검수 결과가 없으면 '측정 전'으로 표시 (수치를 지어내지 않아요) */
 function renderTrust() {
   $("#trust").innerHTML = `
   <div class="hero dark"><h1>AI의 분석, 어디까지 믿을 수 있을까요?</h1>
@@ -152,4 +163,53 @@ function renderTrust() {
       <span class="v">${m.synth ?? "측정 전"}<small>합성 샘플 [N]건</small></span></div>`).join("")}
     <p class="hint">결과가 나오면 DATA.trust의 real, synth 값을 채워 주세요.</p></div></div>`;
 }
+/* 에브리타임 시간표 업로드
+   TODO(Cubig): 시간표 이미지 처리·분석 연동 위치 (TT가 업로드된 File 객체) */
+let TT = null, dayIdx = 0; const done = new Set();
+function setTT(f) {
+  if (f && !f.type.startsWith("image/")) { alert("이미지 파일(PNG, JPG)만 올릴 수 있어요."); return; }
+  const prev = $("#ttPrev");
+  if ($("#ttImg").src.startsWith("blob:")) URL.revokeObjectURL($("#ttImg").src);
+  TT = f || null; prev.hidden = !TT;
+  if (TT) { $("#ttImg").src = URL.createObjectURL(TT); $("#ttName").textContent = TT.name; }
+  else { $("#tt").value = ""; $("#ttImg").removeAttribute("src"); }
+}
+$("#drop").addEventListener("click", () => $("#tt").click());
+$("#tt").addEventListener("change", e => setTT(e.target.files[0]));
+$("#ttDel").addEventListener("click", () => setTT(null));
+["dragover", "dragleave", "drop"].forEach(ev => $("#drop").addEventListener(ev, e => {
+  e.preventDefault(); $("#drop").classList.toggle("over", ev === "dragover");
+  if (ev === "drop") setTT(e.dataTransfer.files[0]);
+}));
+
+/* 하루별 할 일 */
+function renderDaily() {
+  const D = DATA.daily, d = D[dayIdx];
+  const total = D.reduce((s, x) => s + x.todos.length, 0);
+  $("#daily").innerHTML = `
+  <div class="head dark"><div><span class="badge demo">데모 예시</span>
+    <h2>하루별 할 일</h2><p>수업 시간을 피해서 짠 이번 주 ToDo</p></div>
+    <div class="dday" style="font-size:34px">${done.size}/${total}</div></div>
+  <div class="wrap"><div class="card" style="margin-top:-48px">
+    <p class="hint" style="margin:0 0 14px">${TT ? "올린 시간표 이미지는 아직 읽지 않아요. 예시 시간표 기준이에요." : "시간표를 올리지 않아서 예시 시간표 기준이에요."}</p>
+    <div class="chips">${D.map((x, i) => `<button type="button" class="chip" data-day="${i}" aria-pressed="${i === dayIdx}">${x.d} ${x.date}</button>`).join("")}</div>
+    <div class="cols">
+      <div><h3>수업 · 일정</h3>
+        ${d.classes.map(c => `<div class="slot"><b>${c[0]}</b><span>${c[1]}</span></div>`).join("") || '<p class="hint">수업이 없는 날이에요</p>'}
+        <p class="hint">남는 시간 약 ${d.free}시간 <span class="badge src">코드 계산</span></p></div>
+      <div><h3>이날 할 일 <span class="badge src ai">AI 생성</span></h3>
+        ${d.todos.map((t, k) => `<label class="todo"><input type="checkbox" data-k="${k}" ${done.has(dayIdx + "-" + k) ? "checked" : ""}>
+          <span>${t[1]}<small>${t[0]} · ${t[2]}시간</small></span></label>`).join("") || '<p class="hint">할 일이 없어요. 쉬어가요.</p>'}</div>
+    </div></div>
+  <div class="actions"><button class="btn primary" data-go="compare">개인화 비교 보기</button>
+    <button class="btn" data-go="plan">주차별 계획으로</button></div></div>`;
+}
+$("#daily").addEventListener("click", e => {
+  const b = e.target.closest("[data-day]"); if (b) { dayIdx = +b.dataset.day; renderDaily(); }
+});
+$("#daily").addEventListener("change", e => {
+  const c = e.target.closest("[data-k]"); if (!c) return;
+  const key = dayIdx + "-" + c.dataset.k; c.checked ? done.add(key) : done.delete(key); renderDaily();
+});
+
 renderTrust(); renderCompare(true); go("input");
