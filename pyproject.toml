@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4>=4.15.0",
+    "flask>=3.0",
     "httpx2>=2.14.0",
     "olefile>=0.47",
     "openai>=3.42.1",
@@ -16,6 +17,11 @@ dependencies = [
 
 [project.scripts]
 aihack4 = "aihack4:main"
+
+[project.optional-dependencies]
+timetable = [
+    "google-genai>=1.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.13.6,<0.14.0"]

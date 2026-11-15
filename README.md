@@ -24,6 +24,26 @@ uv run streamlit run demo/app.py
 
 > 자동 수집한 공고 원문과 DB(`data/contests/`)는 수집처 약관 때문에 저장소에 올리지 않습니다. 그래서 **수집한 공고** 탭은 비어 있고, 공고는 링크로 직접 넣습니다.
 
+## FourDo 웹 (프론트 + 백엔드)
+
+`backend/static/`의 프론트 화면을 Flask 서버(`backend/app.py`)가 띄웁니다. 판정은 위와 같은 PODO 엔진을 씁니다.
+
+```bash
+uv sync --extra timetable   # 시간표 이미지 읽기(Gemini)를 쓸 때만 --extra timetable
+cp .env.example .env        # OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL (+ 시간표용 GEMINI_API_KEY, 선택)
+uv run python backend/app.py   # http://localhost:5000
+```
+
+| 단계 | 누가 | 하는 일 |
+|---|---|---|
+| 공고 읽기 | LLM | 링크(모집요강·첨부파일 따라가기)나 본문을 구조화 |
+| 자격·팀·시간·판정·일정 | 코드 | `feasibility.judge` — 자격 조건 비교, 가용 시간, 4단계 판정, 작업 배치 |
+| 작업 나누기, 조언 문장 | LLM | 제출물을 작업과 소요 시간으로 나누고, 계산된 결과를 문장으로 |
+| 개인화 비교 | LLM + 코드 | 프로필 없이 짠 일반 계획을 같은 모델로 만들고, 내 일정과 부딪히는 정도는 코드가 셈 |
+| 시간표 | LLM(선택) | 에브리타임 시간표 이미지에서 수업만 추출, 할 일은 코드가 수업을 피해 배치 |
+
+프론트 입력을 엔진 프로필로 바꿀 때의 가정(`backend/adapter.py`): 주당 시간은 평일 하루 : 주말 하루 = 1 : 2로 나누고, 바쁜 일정은 날짜가 있는 것만 못 쓰는 기간으로 봅니다. 역량 칩은 수준을 '가능'으로, '팀원 1~2명 있음'은 2명, '팀 구성 완료'는 3명으로 봅니다. 학교·거주 지역·나이는 입력받지 않아서 그런 조건이 있는 공고는 '확인 필요'로 나옵니다.
+
 ## 웹 배포 (Streamlit Community Cloud)
 
 설치 없이 주소로 접속할 수 있게 배포합니다. 무료입니다.
@@ -57,6 +77,7 @@ uv run python scripts/compare_personalization.py       # A 개인화 없음 / B 
 | 경로 | 내용 |
 |---|---|
 | `demo/` | Streamlit 데모 |
+| `backend/` | FourDo 웹: Flask 서버(`app.py`), 엔진 결과 ↔ 화면 JSON 변환(`adapter.py`), 화면(`static/`) |
 | `src/aihack4/feasibility.py` | 판정 엔진 (자격 조건 추출·비교, 작업 분해, 일정 계산) |
 | `src/aihack4/collector/` | 공고 가져오기(링크·파일·본문 → 구조화)와 자동 수집 에이전트 |
 | `src/aihack4/feasibility_eval.py`, `baselines.py`, `llm_runner.py` | 검증 로직, 비교 조건, 캐시·병렬 LLM 호출 |

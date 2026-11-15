@@ -1,148 +1,155 @@
-"""FourDo 백엔드 (Flask + Gemini). 실행: python app.py → http://localhost:5000"""
-import datetime as dt, json, os, re
-import requests
+"""FourDo 백엔드 (Flask). 실행: python backend/app.py → http://localhost:5000
+
+판정 엔진은 PODO 엔진(src/aihack4)을 그대로 쓴다. LLM은 읽기만 하고 계산은 코드가 한다.
+  1) 공고 읽기·추출: collector.intake (링크면 모집요강 페이지·첨부파일까지 따라가 읽음)
+  2) 자격 조건 추출 → 코드 비교, 작업 분해(LLM) → 시간·판정·일정 계산(코드), 조언 문장(LLM)
+  3) 비교용 일반 계획(프로필 없음, 같은 모델) — 개인화 비교 화면용
+  4) 시간표 이미지 → 수업 추출(Gemini, 선택). 키가 없으면 시간표 없이 진행
+엔진 결과를 프론트가 그리는 JSON으로 옮기는 일은 adapter.py가 한다.
+"""
+
+import json
+import logging
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+
+from dotenv import load_dotenv
 from flask import Flask, jsonify, request
-from google import genai
-from google.genai import types
+from openai import OpenAI
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+load_dotenv(ROOT / ".env")
+
+from aihack4 import baselines as bl  # noqa: E402
+from aihack4.collector import intake  # noqa: E402
+from aihack4.collector.fetcher import Fetcher  # noqa: E402
+from aihack4.feasibility import judge  # noqa: E402
+
+import adapter  # noqa: E402
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
-MODEL = os.getenv("MODEL", "gemini-4-hydrogen")
-KST = dt.timezone(dt.timedelta(hours=9))
-DAYS = "월화수목금토일"
+KST = timezone(timedelta(hours=9))
 IMG_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+TRUST = json.loads((Path(__file__).with_name("trust.json")).read_text(encoding="utf-8"))["metrics"]
+TIMETABLE_MODELS = [os.getenv("TIMETABLE_MODEL", "gemini-4-hydrogen"), "gemini-4-hydrogen", "gemini-3.8-flash"]
+TIMETABLE_PROMPT = """이 이미지는 대학생의 에브리타임 시간표야. 수업만 JSON 하나로 옮겨 적어(설명·코드블록 금지).
+{"classes":[{"day":0,"start":"HH:MM","end":"HH:MM","name":str}]}  day는 월=0 … 일=6.
+이미지에 없는 수업을 지어내지 마."""
+log = logging.getLogger("fourdo")
 
-SYSTEM = """너는 대학생의 공모전·대외활동 준비를 돕는 분석가야. 공고와 학생 프로필을 읽고 JSON 하나만 출력해(설명·코드블록 금지).
-공고에 없는 내용은 지어내지 말고 status를 "needs_check"로 해. 모든 문장은 한국어 해요체.
-{
- "posting":{"title":str,"organizer":str,"deadline":"ISO8601(+09:00) 또는 null"},
- "requirements":[{"label":str,"criterion":"학생 상황과 비교한 한 줄","status":"met|caution|lacking|needs_check"}],
- "time":{"min":int,"max":int},
- "readiness":{"label":"짧은 한 줄","reasons":[str,str]},
- "thisWeek":{"title":str,"hours":number,"note":str},
- "blockers":[{"d":"막는 요소","s":"해결 방법"}],
- "weeks":[{"w":1,"label":str,"rest":bool,"tasks":[[str,hours]]}],
- "fallbacks":[str],
- "compare":{"generic":[str,str,str],"genericNote":str,"mine":[[str,str]],"mineNote":str},
- "classes":[{"day":0,"start":"HH:MM","end":"HH:MM","name":str}],
- "todos":[{"date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","title":str,"hours":number}]
-}"""
 
-def hm(t): h, m = t.split(":"); return int(h) * 60 + int(m)
+def llm() -> tuple[OpenAI, str]:
+    return OpenAI(), os.environ["LLM_MODEL"]
 
-def read_posting(text):
+
+def read_notice(text: str, today: date) -> tuple[dict, list[str]]:
+    """링크든 본문이든 엔진이 쓰는 구조화 공고(dict)로 만든다. 실패하면 IntakeError(사용자에게 보여 줄 문장)."""
+    client, model = llm()
     text = text.strip()
-    if re.match(r"https?://\S+$", text):
-        try:
-            html = requests.get(text, timeout=10, headers={"User-Agent": "Mozilla/5.0"}).text
-        except requests.RequestException:
-            raise ValueError("링크를 읽지 못했어요. 모집요강을 직접 붙여넣어 주세요.")
-        html = re.sub(r"(?is)<(script|style).*?</\1>", " ", html)
-        text = re.sub(r"\s+", " ", re.sub(r"(?s)<[^>]+>", " ", html)).strip()
-        if len(text) < 200:
-            raise ValueError("링크에서 내용을 읽지 못했어요. 모집요강을 직접 붙여넣어 주세요.")
-    return text[:12000]
+    if text.startswith(("http://", "https://")) and " " not in text:
+        result = intake.intake_url(client, model, Fetcher(), text, today.isoformat())
+    else:
+        result = intake.intake_text(client, model, text, today.isoformat())
+    if not result.agent.notice:
+        raise intake.IntakeError("공고 내용을 읽지 못했어요. 모집요강을 직접 붙여넣어 주세요.")
+    return result.agent.notice, result.warnings
 
-def parse_json(raw):
-    if not raw or "{" not in raw:
-        raise ValueError(f"AI 응답에 JSON이 없어요: {raw!r}")
-    return json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
+
+def timetable_classes(image: bytes, mime: str) -> list[dict] | None:
+    """시간표 이미지에서 수업만 추출한다(읽기만 하는 LLM). 키가 없거나 실패하면 None."""
+    if not os.getenv("GEMINI_API_KEY"):
+        return None
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client()
+    for model in dict.fromkeys(TIMETABLE_MODELS):
+        try:
+            resp = client.models.generate_content(
+                model=model, contents=[types.Part.from_bytes(data=image, mime_type=mime), TIMETABLE_PROMPT],
+                config=types.GenerateContentConfig(response_mime_type="application/json", max_output_tokens=4096))
+            raw = resp.text or ""
+            return json.loads(raw[raw.index("{"): raw.rindex("}") + 1]).get("classes", [])
+        except Exception as error:  # 다음 모델로
+            log.warning("timetable %s: %s", model, error)
+    return None
+
+
+def generic_plan(notice: dict, today: date) -> dict | None:
+    """개인화 비교용: 프로필 없이 같은 모델이 짠 계획(평가의 비교 조건 A와 같은 프롬프트)."""
+    try:
+        client, model = llm()
+        plan, _ = bl.generic_plan(client, model, notice, today)
+        return plan
+    except Exception as error:
+        log.warning("generic plan: %s", error)
+        return None
+
 
 @app.get("/")
-def index(): return app.send_static_file("index.html")
+def index():
+    return app.send_static_file("index.html")
+
 
 @app.get("/api/health")
-def health(): return {"ok": True}
+def health():
+    return {"ok": True, "engine": "podo"}
+
 
 @app.post("/api/analyze")
 def analyze():
     f = request.form
-    try:
-        posting = read_posting(f.get("posting", ""))
-    except ValueError as e:
-        return jsonify(error=str(e)), 400
-    if len(posting) < 20:
+    posting = (f.get("posting") or "").strip()
+    if len(posting) < 20 and not posting.startswith(("http://", "https://")):
         return jsonify(error="공고 링크 또는 모집요강을 입력해 주세요."), 400
-    try: hours = min(60, max(1, int(f.get("hours", 12))))
-    except ValueError: hours = 12
+    try:
+        hours = min(60, max(1, int(f.get("hours", 12))))
+    except ValueError:
+        hours = 12
+    try:
+        skills = json.loads(f.get("skills") or "[]")
+    except json.JSONDecodeError:
+        skills = []
     img = request.files.get("timetable")
     if img and img.mimetype not in IMG_TYPES:
         return jsonify(error="시간표는 PNG, JPG 이미지만 올릴 수 있어요."), 400
+    image = img.read() if img else None
 
-    now = dt.datetime.now(KST)
-    profile = (f"오늘: {now:%Y-%m-%d} ({DAYS[now.weekday()]})\n학년·전공: {f.get('major','')}\n주당 투자 가능 시간: {hours}시간\n"
-               f"바쁜 일정: {f.get('busy','')}\n보유 역량: {f.get('skills','[]')}\n관련 경험: {f.get('exp','')}\n팀 구성: {f.get('team','')}")
-    contents = []
-    if img:
-        contents.append(types.Part.from_bytes(data=img.read(), mime_type=img.mimetype))
-        contents.append("위 이미지는 학생의 에브리타임 시간표야. classes에 수업을 추출해.")
-    contents.append(f"[공고]\n{posting}\n\n[학생 프로필]\n{profile}")
+    today = datetime.now(KST).date()
+    profile, assumed = adapter.to_profile(
+        {"major": f.get("major", ""), "hours": hours, "busy": f.get("busy", ""), "skills": skills,
+         "exp": f.get("exp", ""), "team": f.get("team", "팀 없음")}, today)
 
-    try:
-        client = genai.Client()  # GEMINI_API_KEY 환경변수 자동 사용
-        ai = None
-        last_err = None
-        for m in dict.fromkeys([MODEL, "gemini-4-hydrogen", "gemini-3.8-flash"]):
-            try:
-                resp = client.models.generate_content(
-                    model=m,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM,
-                        response_mime_type="application/json",
-                        max_output_tokens=16384,
-                        thinking_config=types.ThinkingConfig(thinking_level="LOW"),
-                    ),
-                )
-                ai = parse_json(resp.text)
-                break
-            except Exception as err:
-                last_err = err
-        if ai is None:
-            raise last_err
-    except Exception as e:
-        app.logger.exception(e)
-        return jsonify(error="분석에 실패했어요. 잠시 후 다시 시도해 주세요."), 502
-    return jsonify(build(ai, now, hours, bool(img)))
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        classes_job = pool.submit(timetable_classes, image, img.mimetype) if image else None
+        try:
+            notice, warnings = read_notice(posting, today)
+        except intake.IntakeError as error:
+            return jsonify(error=str(error)), 400
+        except Exception as error:
+            log.exception(error)
+            return jsonify(error="공고를 읽는 중에 문제가 생겼어요. 잠시 후 다시 시도해 주세요."), 502
+        generic_job = pool.submit(generic_plan, dict(notice), today)  # judge가 notice에 자격 조건을 써 넣으므로 복사본
+        try:
+            client, model = llm()
+            result = judge(client, model, notice, profile, today)
+        except Exception as error:
+            log.exception(error)
+            return jsonify(error="분석에 실패했어요. 잠시 후 다시 시도해 주세요."), 502
+        generic = generic_job.result()
+        classes = classes_job.result() if classes_job else None
 
-def build(ai, now, hours, has_tt):
-    """AI 추출값을 코드로 검증·계산: D-day, 가용 시간, 하루별 빈 시간, 수업과 겹치는 할 일 제거"""
-    DAY_MAP = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6,
-           "0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6,
-           "월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
-    p = ai.get("posting", {})
-    t = ai.get("time", {"min": 0, "max": 0})
-    weeks_left = 1
-    try:
-        dl = dt.datetime.fromisoformat(p["deadline"])
-        weeks_left = max(1, (dl - now).days // 7)
-    except (KeyError, TypeError, ValueError):
-        p["deadline"] = None
-    classes = ai.get("classes", []) if has_tt else []
-    todos = ai.get("todos", [])
-    daily = []
-    for i in range(1, 8):
-        day = now + dt.timedelta(days=i)
-        cls = sorted(
-            (c for c in classes if DAY_MAP.get(c.get("day")) == day.weekday()),
-            key=lambda c: c.get("start", "99:99")
-        )
-        busy = sum(hm(c["end"]) - hm(c["start"]) for c in cls) / 60
-        mine = []
-        for td in todos:
-            if td.get("date") != f"{day:%Y-%m-%d}": continue
-            s, e = hm(td["start"]), hm(td["end"])
-            if any(s < hm(c["end"]) and hm(c["start"]) < e for c in cls): continue
-            mine.append([f"{td['start']}–{td['end']}", td["title"], td["hours"]])
-        daily.append({"d": DAYS[day.weekday()], "date": f"{day.month}/{day.day}", "free": max(0, round(12 - busy)),
-                      "classes": [[f"{c['start']}–{c['end']}", c["name"]] for c in cls], "todos": mine})
-    return {"meta": {"is_demo": False, "timetable": has_tt}, "posting": p,
-            "requirements": [{**r, "source": "ai"} for r in ai.get("requirements", [])],
-            "readiness": {**ai.get("readiness", {}), "disclaimer": "준비도는 합격 확률이 아니에요."},
-            "time": {"min": t["min"], "max": t["max"], "available": hours * weeks_left},
-            "thisWeek": ai.get("thisWeek", {}), "blockers": ai.get("blockers", []),
-            "weeks": ai.get("weeks", []), "fallbacks": ai.get("fallbacks", []),
-            "compare": ai.get("compare", {}), "trust": [], "daily": daily}
+    response = adapter.to_response(
+        notice, result, profile, today, generic=generic, classes=classes or [], has_timetable=classes is not None,
+        assumed=assumed, trust=TRUST, warnings=warnings)
+    return jsonify(response)
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))

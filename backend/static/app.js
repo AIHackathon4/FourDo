@@ -86,7 +86,7 @@ $("#form").addEventListener("submit", e => {
     }).join("");
     bar.style.width = (i / STEPS.length * 100) + "%";
     if (i++ < STEPS.length) setTimeout(tick, 900);
-    else req.then(r => { if (!r) return go("input"); DATA = r; dayIdx = 0; done.clear(); renderResult(); renderPlan(); renderDaily(); go("result"); });
+    else req.then(r => { if (!r) return go("input"); DATA = r; dayIdx = 0; done.clear(); renderResult(); renderPlan(); renderDaily(); renderCompare(true); renderTrust(); go("result"); });
   };
   tick();
 });
