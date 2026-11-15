@@ -52,9 +52,15 @@ const $ = (s, r = document) => r.querySelector(s);
 const demo = () => DATA.meta.is_demo ? '<span class="badge demo">예시</span>' : "";
 
 /* 화면 전환 */
+const NAV_OF = { trust: "trust", history: "history", login: "login" };
 function go(id) {
+  if (id === "login" && USER) return go("input");
+  if (id === "history") {
+    if (!USER) { pendingGo = "history"; return go("login"); }
+    loadHistory();
+  }
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === id));
-  document.querySelectorAll("[data-nav]").forEach(b => b.classList.toggle("on", b.dataset.nav === id || (id !== "trust" && b.dataset.nav === "input")));
+  document.querySelectorAll("[data-nav]").forEach(b => b.classList.toggle("on", b.dataset.nav === (NAV_OF[id] || "input")));
   window.scrollTo(0, 0);
 }
 document.addEventListener("click", e => {
@@ -132,7 +138,7 @@ function renderResult() {
       ${d.blockers.map(b => `<p><b>${b.d}</b><br><span class="hint">${b.s}</span></p><br>`).join("")}</div>
   </div>
   <div class="actions"><button class="btn primary" data-go="plan">나만의 실행 계획 확인하기</button>
-    <button class="btn" data-go="input">다시 분석하기</button></div></div>`;
+    <button class="btn" data-go="input">다시 분석하기</button>${saveBarHTML()}</div></div>`;
 }
 
 /* 실행 계획 */
@@ -224,4 +230,110 @@ $("#daily").addEventListener("change", e => {
   const key = dayIdx + "-" + c.dataset.k; c.checked ? done.add(key) : done.delete(key); renderDaily();
 });
 
-renderTrust(); renderCompare(true); go("input");
+/* ===== 계정 · 내 도전 기록 ===== */
+let USER = null, pendingGo = null, authMode = "login";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function api(path, opts = {}) {
+  try {
+    const r = await fetch(path, { ...opts, headers: opts.body ? { "Content-Type": "application/json" } : undefined });
+    let body = null; try { body = await r.json(); } catch (_) {}
+    return { ok: r.ok, status: r.status, body };
+  } catch (err) { return { ok: false, status: 0, body: null }; }
+}
+
+function renderAcct() {
+  $("#acct").innerHTML = USER
+    ? `<span>${esc(USER.name)}님</span><button type="button" id="logout">로그아웃</button>`
+    : `<button type="button" data-go="login" data-nav="login">로그인</button>`;
+}
+$("#acct").addEventListener("click", async e => {
+  if (!e.target.closest("#logout")) return;
+  await api("/api/logout", { method: "POST" });
+  USER = null; renderAcct(); $("#history").innerHTML = ""; go("input");
+});
+
+async function loadMe() { USER = (await api("/api/me")).body?.user || null; renderAcct(); }
+
+/* 로그인 · 회원가입 */
+function setAuthMode(m) {
+  authMode = m;
+  document.querySelectorAll("#authTabs .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.mode === m));
+  $("#nameRow").hidden = m === "login";
+  $("#authSubmit").textContent = m === "login" ? "로그인" : "가입하고 시작하기";
+  $("#pw").autocomplete = m === "login" ? "current-password" : "new-password";
+  $("#authErr").textContent = "";
+}
+$("#authTabs").addEventListener("click", e => { const b = e.target.closest("[data-mode]"); if (b) setAuthMode(b.dataset.mode); });
+$("#authForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = e.target, btn = $("#authSubmit"), err = $("#authErr");
+  err.textContent = ""; btn.disabled = true;
+  const r = await api(authMode === "login" ? "/api/login" : "/api/signup", {
+    method: "POST", body: JSON.stringify({ email: f.email.value, password: f.password.value, name: f.name.value })
+  });
+  btn.disabled = false;
+  if (!r.ok) { err.textContent = r.body?.error || "서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요."; return; }
+  USER = r.body.user; renderAcct(); f.reset();
+  const next = pendingGo; pendingGo = null;
+  if (next === "save") { await saveCurrent(); renderResult(); go("result"); }
+  else go(next || "input");
+});
+
+/* 결과 저장 */
+function saveBarHTML() {
+  if (DATA.meta.is_demo) return "";
+  if (DATA.meta.saved_id) return '<span class="saved">내 도전 기록에 저장됐어요</span>';
+  return `<button class="btn" type="button" id="saveBtn">${USER ? "내 도전 기록에 저장" : "로그인하고 저장하기"}</button>`;
+}
+async function saveCurrent() {
+  const r = await api("/api/history", { method: "POST", body: JSON.stringify({ result: DATA }) });
+  if (r.ok) DATA.meta.saved_id = r.body.id;
+  else if (r.status === 401) { USER = null; renderAcct(); }
+  else alert(r.body?.error || "저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
+  return r.ok;
+}
+$("#result").addEventListener("click", async e => {
+  if (!e.target.closest("#saveBtn")) return;
+  if (!USER) { pendingGo = "save"; return go("login"); }
+  if (await saveCurrent()) renderResult();
+});
+
+/* 내 도전 기록 */
+const ddayText = iso => {
+  const t = iso && new Date(iso); if (!t || isNaN(t)) return "마감일 미정";
+  const n = Math.ceil((t - new Date()) / 864e5); return n >= 0 ? `D-${n}` : "마감";
+};
+function renderHistory(items, msg) {
+  $("#history").innerHTML = `
+  <div class="head dark"><div><h2>내 도전 기록</h2><p>${esc(USER.name)}님이 저장한 분석 결과예요</p></div>
+    <div class="dday" style="font-size:34px">${items.length}</div></div>
+  <div class="wrap"><div class="card" style="margin-top:-48px">
+    ${msg ? `<p class="err">${esc(msg)}</p>` : ""}
+    ${items.length ? items.map(it => `<div class="rec">
+      <button type="button" class="rec-main" data-open="${it.id}"><b>${esc(it.title)}</b>
+        <small>${esc(it.organizer)} · ${ddayText(it.deadline)} · ${new Date(it.created_at).toLocaleDateString("ko-KR")} 저장</small>
+        ${it.readiness ? `<span class="lv">${esc(it.readiness)}</span>` : ""}</button>
+      <button type="button" class="rec-del" data-del="${it.id}">삭제</button></div>`).join("")
+    : msg ? "" : `<div class="empty">아직 저장된 분석이 없어요.<br>공고를 분석하면 여기에 쌓여요.<br><button class="btn primary" data-go="input">공고 분석하기</button></div>`}
+  </div></div>`;
+}
+async function loadHistory() {
+  const r = await api("/api/history");
+  if (r.status === 401) { USER = null; renderAcct(); pendingGo = "history"; return go("login"); }
+  renderHistory(r.ok ? r.body.items : [], r.ok ? "" : "기록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+}
+$("#history").addEventListener("click", async e => {
+  const o = e.target.closest("[data-open]"), d = e.target.closest("[data-del]");
+  if (o) {
+    const r = await api("/api/history/" + o.dataset.open);
+    if (!r.ok) return alert(r.body?.error || "기록을 열지 못했어요.");
+    DATA = r.body; dayIdx = 0; done.clear(); renderResult(); renderPlan(); renderDaily(); go("result");
+  } else if (d && confirm("이 기록을 삭제할까요? 되돌릴 수 없어요.")) {
+    const r = await api("/api/history/" + d.dataset.del, { method: "DELETE" });
+    if (!r.ok && r.status !== 404) alert(r.body?.error || "삭제하지 못했어요.");
+    loadHistory();
+  }
+});
+
+renderTrust(); renderCompare(true); renderAcct(); go("input"); loadMe();
