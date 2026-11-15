@@ -120,7 +120,7 @@ def test_new_profile_inputs():
 
 def test_region_condition_fails_with_region_and_session_lists_questions():
     notice = {**NOTICE, "eligibility_conditions": [
-        {"type": "region", "allowed": ["대전"], "min": None, "max": None, "quote": "대전 거주자", "question": "대전에 사나요?"},
+        {"type": "region", "allowed": ["대전"], "min": None, "max": None, "quote": "대전 거주자", "question": "대전에 사나요?", "typical": False},
         {"type": "other", "allowed": [], "min": None, "max": None, "quote": "OO 회원", "question": "OO 회원인가요?"}]}
     seoul, _ = adapter.to_profile({**FORM, "region": "서울"}, TODAY)
     assert evaluate(notice, seoul, RAW, TODAY).verdict == "어려움"  # 지역을 알면 바로 걸러진다

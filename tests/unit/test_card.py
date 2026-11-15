@@ -38,3 +38,10 @@ def test_check_card_reports_bad_date_and_missing_quote():
 def test_check_card_splits_datetime_deadline():
     c = check_card(card(deadline="2026-10-23T18:00", deadline_time=None), SOURCE)
     assert (c["deadline"], c["deadline_time"]) == ("2026-10-23", "18:00")
+
+
+def test_open_conditions_are_dropped():
+    nationwide = {"type": "region", "allowed": ["전국"], "min": None, "max": None, "quote": "지역전국",
+                  "question": "?", "typical": True}
+    c = check_card(card(conditions=[nationwide]), SOURCE)
+    assert c["conditions"] == []

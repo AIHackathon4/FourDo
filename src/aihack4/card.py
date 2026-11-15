@@ -89,8 +89,8 @@ CARD_SCHEMA = {
                 "type": {"type": "string", "enum": list(CONDITION_TYPES)},
                 "allowed": {"type": "array", "items": {"type": "string"}},
                 "min": _nullable("number"), "max": _nullable("number"),
-                "quote": QUOTE, "question": {"type": "string"}},
-            "required": ["type", "allowed", "min", "max", "quote", "question"], "additionalProperties": False}},
+                "quote": QUOTE, "question": {"type": "string"}, "typical": {"type": "boolean"}},
+            "required": ["type", "allowed", "min", "max", "quote", "question", "typical"], "additionalProperties": False}},
         "criteria": {"type": "array", "items": {
             "type": "object",
             "properties": {"name": {"type": "string"}, "weight": _nullable("number"), "quote": QUOTE},
@@ -117,6 +117,9 @@ CARD_SYSTEM = f"""너는 대학생 공모전 공고를 읽고 '공고 카드'를
 - region/school/major: allowed에 허용 값(지역은 시·도 이름). status: allowed는 {", ".join(STATUSES)} 중에서.
 - grade/age: min, max에 숫자. other: 위에 안 맞는 조건(회원 여부, 수상 이력 제한 등).
 - question: 학생에게 예/아니오로 물을 질문. "대학생 누구나"처럼 대학생이면 다 되는 조건은 넣지 않는다.
+- typical: 대부분의 한국 대학생이 따로 확인하지 않아도 충족하는 조건이면 true(예: 대한민국 국민, 만 14세 이상). 특정 지역·학교·회원·전공처럼 걸러지는 학생이 많으면 false.
+- 작품에 대한 규정(타 공모전 수상작 불가, 표절 금지, 순수 창작물 등)은 참가 자격이 아니므로 넣지 않는다.
+- 누구나 참가할 수 있다는 뜻의 표현(전국, 제한 없음, 관심 있는 누구나, 아이디어를 가진 일반인)은 조건이 아니므로 넣지 않는다.
 
 [criteria] 심사·평가 기준이 공고에 있을 때만. submissions에서 기준으로 삼은 부문의 기준만, 가장 세부 항목만 옮긴다(큰 분류와 그 아래 항목이 함께 있으면 아래 항목만). 항목 이름과 배점(없으면 null). 없으면 빈 배열.
 
@@ -127,9 +130,12 @@ CARD_SYSTEM = f"""너는 대학생 공모전 공고를 읽고 '공고 카드'를
 - requirement: 공고가 정한 형식·분량·조건(예: "PDF 10쪽 이내", "3분 이내 영상").
 - 부문이 여러 개면 대학생이 가장 많이 고를 부문 하나를 기준으로 하고, 결과물 이름에 부문을 밝힌다.
 
-[options] 결과물마다 만드는 방법 2~3개. 같은 결과물을 서로 다른 방식·수준으로 만드는 현실적인 방법이다.
-- tier: 최소(요건만 충족) / 표준(대학생 평균 수준) / 차별화(심사에서 눈에 띄는 수준). 서로 다른 tier로.
-- skills: 그 방법에 꼭 필요한 역량과 최소 수준. 역량은 {", ".join(SKILLS)} 중에서만. 누구나 할 수 있으면 빈 배열.
+[options] 결과물마다 만드는 방법 3~5개. 같은 결과물을 서로 다른 방식·수준으로 만드는 현실적인 방법이다.
+- tier: 최소(요건만 충족) / 표준(대학생 평균 수준) / 차별화(심사에서 눈에 띄는 수준). 세 단계를 모두 넣는다.
+- 표준·차별화는 서로 다른 강점으로 가는 길이 있으면 같은 tier에 방법을 두 개까지 넣는다
+  (예: 차별화 기획서 = 동작 프로토타입을 붙이는 길(개발) / 심층 조사·논증으로 설득하는 길(글쓰기·기획) / 시각 자료로 전달하는 길(디자인)).
+- skills: 결과물 품질을 좌우하는 핵심 역량 1~2개와 최소 수준만. 역량은 {", ".join(SKILLS)} 중에서만. 누구나 할 수 있으면 빈 배열.
+  대학생이면 누구나 하는 수준(기획·글쓰기·발표 입문)은 적지 않는다. 문서를 쓴다고 글쓰기를 붙이지 말고, 그 방법을 다른 방법과 가르는 역량만 적는다.
   코드를 짜는 방법이면 반드시 개발(또는 데이터·AI)이 들어간다. 디자인 도구·영상 편집 도구를 제대로 다뤄야 하면 디자인·영상이 들어간다.
   tier가 높을수록 필요한 역량 수준이나 시간이 같거나 커야 한다.
 - 결과물마다 skills가 빈 배열인(누구나 할 수 있는) 방법을 하나 넣는다. 단, 공고 요건상 특정 역량 없이는 낼 수 없는 결과물(예: 동작하는 코드 필수)이면 넣지 않는다.
@@ -195,6 +201,16 @@ def quote_found(quote: str, source: str) -> bool:
     return bool(pieces) and all(p in text for p in pieces)
 
 
+OPEN_WORDS = ("전국", "전 지역", "제한 없음", "제한없음", "누구나", "무관")
+
+
+def no_restriction(condition: dict) -> bool:
+    """'지역: 전국'처럼 아무도 걸러내지 않는 조건."""
+    values = condition["allowed"] or []
+    return condition["type"] in ("region", "school", "major", "status") and (
+        not values or all(any(w in v for w in OPEN_WORDS) for v in values))
+
+
 def _iso(value) -> str | None:
     try:
         return date.fromisoformat(str(value)).isoformat()
@@ -220,6 +236,7 @@ def check_card(card: dict, source: str) -> dict:
     if card["deadline"] and card["deadline_quote"] and not quote_found(card["deadline_quote"], source):
         issues.append("마감일 근거 문장이 원문에 없어요")
 
+    card["conditions"] = [c for c in card["conditions"] if not no_restriction(c)]
     for item in card["conditions"] + card["criteria"]:
         item["quote_ok"] = quote_found(item["quote"], source)
         if not item["quote_ok"]:
@@ -232,10 +249,13 @@ def check_card(card: dict, source: str) -> dict:
         for option in sub["options"]:
             option["steps"] = [s for s in option["steps"] if s["hours"] > 0] or [{"name": option["name"], "hours": 1.0}]
             option["hours"] = round(sum(s["hours"] for s in option["steps"]), 1)
-        sub["options"].sort(key=lambda o: TIERS.index(o["tier"]))
-        hours = [o["hours"] for o in sub["options"]]
-        if hours != sorted(hours):
-            issues.append(f"'{sub['name']}' 선택지 시간이 단계 순서와 맞지 않아요: {hours}")
+        sub["options"].sort(key=lambda o: (TIERS.index(o["tier"]), o["hours"]))
+        lowest = {}
+        for o in sub["options"]:
+            lowest.setdefault(o["tier"], o["hours"])
+        tier_hours = [lowest[t] for t in TIERS if t in lowest]
+        if tier_hours != sorted(tier_hours):
+            issues.append(f"'{sub['name']}' 단계별 시간이 단계 순서와 맞지 않아요: {tier_hours}")
         sub["needs_skill"] = not any(not o["skills"] for o in sub["options"])  # 역량이 꼭 필요한 결과물(예: 코드)
     if not card["submissions"]:
         issues.append("작업이 필요한 제출물을 찾지 못했어요")
