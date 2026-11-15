@@ -7,7 +7,7 @@ from flask import Flask, jsonify, request
 app = Flask(__name__, static_folder="static", static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 client = Anthropic()  # ANTHROPIC_API_KEY 환경변수 사용
-MODEL = os.getenv("MODEL", "claude-sonnet-5-5")
+MODEL = os.getenv("MODEL", "claude-sonnet-4-6")  
 KST = dt.timezone(dt.timedelta(hours=9))
 DAYS = "월화수목금토일"
 IMG_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
@@ -88,6 +88,9 @@ def analyze():
 
 def build(ai, now, hours, has_tt):
     """AI 추출값을 코드로 검증·계산: D-day, 가용 시간, 하루별 빈 시간, 수업과 겹치는 할 일 제거"""
+    DAY_MAP = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6,
+           "0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6,
+           "월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
     p = ai.get("posting", {})
     t = ai.get("time", {"min": 0, "max": 0})
     weeks_left = 1
@@ -101,7 +104,10 @@ def build(ai, now, hours, has_tt):
     daily = []
     for i in range(1, 8):
         day = now + dt.timedelta(days=i)
-        cls = sorted((c for c in classes if c.get("day") == day.weekday()), key=lambda c: c["start"])
+        cls = sorted(
+            (c for c in classes if DAY_MAP.get(c.get("day")) == day.weekday()),
+            key=lambda c: c.get("start", "99:99")
+        )
         busy = sum(hm(c["end"]) - hm(c["start"]) for c in cls) / 60
         mine = []
         for td in todos:
