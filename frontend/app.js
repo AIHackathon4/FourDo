@@ -1,7 +1,5 @@
-/* FourDo 프론트엔드 (데모)
-   DATA는 docs/fourdo_api_response.json 과 같은 구조예요.
-   백엔드가 연결되면 DATA 대신 fetch 결과를 render*()에 넘기면 됩니다. */
-const DATA = {
+/* FourDo 프론트엔드. /api/analyze 응답을 DATA에 담아 렌더링. 서버에 연결되지 않으면 아래 예시 데이터로 대체. */
+let DATA = {
   meta: { is_demo: true },
   posting: { title: "[샘플] 대학생 아이디어 공모전", organizer: "[샘플 주최기관]", deadline: "2026-12-10T18:00:00+09:00" },
   requirements: [
@@ -47,10 +45,11 @@ DATA.daily = [
   { d: "토", date: "11/21", free: 8, classes: [], todos: [["10:00–12:00", "기획서 방향 메모", 2]] },
   { d: "일", date: "11/22", free: 8, classes: [], todos: [] }
 ];
+const DEMO = DATA;
 const STATUS = { met: "충족", caution: "주의", lacking: "부족", needs_check: "확인 필요" };
 const SRC = { code: "코드 판정", ai: "AI 추출" };
 const $ = (s, r = document) => r.querySelector(s);
-const demo = '<span class="badge demo">예시</span>';
+const demo = () => DATA.meta.is_demo ? '<span class="badge demo">예시</span>' : "";
 
 /* 화면 전환 */
 function go(id) {
@@ -78,6 +77,7 @@ chips($("#team"), ["팀 없음", "팀원 1~2명 있음", "팀 구성 완료"], f
 const STEPS = ["공고 핵심 정보 파악", "지원 조건 및 일정 확인", "시간표 기반 가용 시간 계산", "하루별 맞춤 할 일 구성"];
 $("#form").addEventListener("submit", e => {
   e.preventDefault(); go("progress");
+  const req = analyze(new FormData(e.target));
   const list = $("#stepList"), bar = $("#bar"); let i = 0;
   const tick = () => {
     list.innerHTML = STEPS.map((s, k) => {
@@ -86,10 +86,23 @@ $("#form").addEventListener("submit", e => {
     }).join("");
     bar.style.width = (i / STEPS.length * 100) + "%";
     if (i++ < STEPS.length) setTimeout(tick, 900);
-    else { renderResult(); renderPlan(); renderDaily(); go("result"); }
+    else req.then(r => { if (!r) return go("input"); DATA = r; dayIdx = 0; done.clear(); renderResult(); renderPlan(); renderDaily(); go("result"); });
   };
   tick();
 });
+
+/* 서버 호출: 입력 오류(4xx)는 안내하고, 서버 장애·연결 실패 시 예시 데이터로 대체 */
+async function analyze(fd) {
+  fd.set("skills", JSON.stringify([...document.querySelectorAll("#skills .chip[aria-pressed=true]")].map(c => c.textContent)));
+  fd.set("team", $("#team .chip[aria-pressed=true]").textContent);
+  if (TT) fd.set("timetable", TT);
+  try {
+    const r = await fetch("/api/analyze", { method: "POST", body: fd });
+    if (r.status >= 400 && r.status < 500) { alert((await r.json()).error || "입력을 확인해 주세요."); return null; }
+    if (!r.ok) throw new Error(r.status);
+    return await r.json();
+  } catch (err) { console.warn(err); return DEMO; }
+}
 
 /* 결과 */
 function renderResult() {
@@ -97,11 +110,11 @@ function renderResult() {
   const days = Math.max(0, Math.ceil((dl - new Date()) / 864e5));
   const t = d.time, pct = Math.min(100, Math.round(t.available / t.max * 100));
   $("#result").innerHTML = `
-  <div class="head dark"><div><span class="badge demo">데모 예시 결과</span>
+  <div class="head dark"><div>${DATA.meta.is_demo ? '<span class="badge demo">데모 예시 결과</span>' : ''}
     <h2>${d.posting.title}</h2><p>${d.posting.organizer} · 마감 ${dl.getFullYear()}.${dl.getMonth() + 1}.${dl.getDate()}</p></div>
     <div class="dday">D-${days}</div></div>
   <div class="wrap"><div class="grid">
-    <div class="card"><h3>나의 도전 준비도 ${demo}</h3>
+    <div class="card"><h3>나의 도전 준비도 ${demo()}</h3>
       <div class="level">${d.readiness.label}</div>
       <ul class="plain">${d.readiness.reasons.map(r => `<li>${r}</li>`).join("")}</ul>
       <p class="hint">${d.readiness.disclaimer}</p>
@@ -127,7 +140,7 @@ function renderPlan() {
   const d = DATA, t = d.time;
   $("#plan").innerHTML = `
   <div class="head dark"><div><h2>마감일까지, 나에게 맞는 준비 계획.</h2>
-    <p>총 예상 ${t.min}~${t.max}시간 · 확보 가능 ${t.available}시간 ${demo}</p></div></div>
+    <p>총 예상 ${t.min}~${t.max}시간 · 확보 가능 ${t.available}시간 ${demo()}</p></div></div>
   <div class="wrap"><div class="grid one"><div class="card"><h3>주차별 작업</h3>
     <div class="weeks">${d.weeks.map(w => `<div class="week ${w.rest ? "rest" : ""}"><b>${w.w}주 · ${w.label}</b>
       <ul>${w.tasks.map(k => `<li><span>${k[0]}</span><span>${k[1]}h</span></li>`).join("") || "<li>쉬어가요</li>"}</ul></div>`).join("")}</div></div>
@@ -143,7 +156,7 @@ function renderCompare(on) {
   $("#cmp").innerHTML = `
   <div class="pane gen ${on ? "dim" : ""}"><h3>일반 AI 답변 <span class="badge src ai">프로필 없음</span></h3>
     ${c.generic.map(x => `<p>· ${x}</p>`).join("")}<footer>${c.genericNote}</footer></div>
-  <div class="pane me ${on ? "" : "dim"}"><h3>FourDo · 내 프로필 반영 <span class="badge met">개인화 70%</span></h3>
+  <div class="pane me ${on ? "" : "dim"}"><h3>FourDo · 내 프로필 반영 <span class="badge met">프로필 반영</span></h3>
     ${c.mine.map(m => `<div class="row"><b>${m[0]}</b><span>${m[1]}</span></div>`).join("")}<footer>${c.mineNote}</footer></div>`;
   document.querySelectorAll(".toggle button").forEach(b => b.classList.toggle("on", (b.dataset.p === "on") === on));
 }
@@ -159,12 +172,11 @@ function renderTrust() {
   <div class="wrap page-pad"><div class="card" style="margin-top:-56px">
     <div class="metric mh"><span>항목</span><span>실제 검수</span><span>합성 테스트</span></div>
     ${DATA.trust.map(m => `<div class="metric"><b>${m.name}</b>
-      <span class="v">${m.real ?? "측정 전"}<small>검수 샘플 [N]건</small></span>
-      <span class="v">${m.synth ?? "측정 전"}<small>합성 샘플 [N]건</small></span></div>`).join("")}
-    <p class="hint">결과가 나오면 DATA.trust의 real, synth 값을 채워 주세요.</p></div></div>`;
+      <span class="v">${m.real ?? "측정 전"}</span>
+      <span class="v">${m.synth ?? "측정 전"}</span></div>`).join("")}
+    <p class="hint">검수가 끝나는 대로 결과를 공개해요.</p></div></div>`;
 }
-/* 에브리타임 시간표 업로드
-   TODO(Cubig): 시간표 이미지 처리·분석 연동 위치 (TT가 업로드된 File 객체) */
+/* 에브리타임 시간표 업로드 */
 let TT = null, dayIdx = 0; const done = new Set();
 function setTT(f) {
   if (f && !f.type.startsWith("image/")) { alert("이미지 파일(PNG, JPG)만 올릴 수 있어요."); return; }
@@ -187,11 +199,11 @@ function renderDaily() {
   const D = DATA.daily, d = D[dayIdx];
   const total = D.reduce((s, x) => s + x.todos.length, 0);
   $("#daily").innerHTML = `
-  <div class="head dark"><div><span class="badge demo">데모 예시</span>
+  <div class="head dark"><div>${DATA.meta.is_demo ? '<span class="badge demo">데모 예시</span>' : ''}
     <h2>하루별 할 일</h2><p>수업 시간을 피해서 짠 이번 주 ToDo</p></div>
     <div class="dday" style="font-size:34px">${done.size}/${total}</div></div>
   <div class="wrap"><div class="card" style="margin-top:-48px">
-    <p class="hint" style="margin:0 0 14px">${TT ? "올린 시간표 이미지는 아직 읽지 않아요. 예시 시간표 기준이에요." : "시간표를 올리지 않아서 예시 시간표 기준이에요."}</p>
+    <p class="hint" style="margin:0 0 14px">${DATA.meta.is_demo ? "서버에 연결되지 않아 예시 시간표 기준이에요." : DATA.meta.timetable ? "올린 시간표를 기준으로 짰어요." : "시간표를 올리지 않아서 하루 가용 시간을 12시간으로 가정했어요."}</p>
     <div class="chips">${D.map((x, i) => `<button type="button" class="chip" data-day="${i}" aria-pressed="${i === dayIdx}">${x.d} ${x.date}</button>`).join("")}</div>
     <div class="cols">
       <div><h3>수업 · 일정</h3>
