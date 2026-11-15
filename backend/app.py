@@ -80,17 +80,26 @@ def analyze():
 
     try:
         client = genai.Client()  # GEMINI_API_KEY 환경변수 자동 사용
-        resp = client.models.generate_content(
-            model=MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM,
-                response_mime_type="application/json",
-                max_output_tokens=16384,
-                thinking_config=types.ThinkingConfig(thinking_level="low"),
-            ),
-        )
-        ai = parse_json(resp.text)
+        ai = None
+        last_err = None
+        for m in dict.fromkeys([MODEL, "gemini-4-hydrogen", "gemini-3.8-flash"]):
+            try:
+                resp = client.models.generate_content(
+                    model=m,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM,
+                        response_mime_type="application/json",
+                        max_output_tokens=16384,
+                        thinking_config=types.ThinkingConfig(thinking_level="LOW"),
+                    ),
+                )
+                ai = parse_json(resp.text)
+                break
+            except Exception as err:
+                last_err = err
+        if ai is None:
+            raise last_err
     except Exception as e:
         app.logger.exception(e)
         return jsonify(error="분석에 실패했어요. 잠시 후 다시 시도해 주세요."), 502
