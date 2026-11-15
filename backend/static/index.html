@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FourDo · 관심을 도전으로, 도전을 실행으로</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="grape" viewBox="0 0 200 240">
+    <rect x="94" y="14" width="12" height="42" rx="6" fill="#8BC34A"/>
+    <path d="M104 30c4-16 18-24 34-24-2 16-14 26-34 24z" fill="#C4F45B"/>
+    <circle cx="58" cy="92" r="34" fill="#8E52C8"/>
+    <circle cx="142" cy="92" r="34" fill="#8E52C8"/>
+    <circle cx="100" cy="84" r="36" fill="#A97BE0"/>
+    <circle cx="86" cy="72" r="8" fill="#E6D4FA"/>
+    <circle cx="78" cy="142" r="34" fill="#7A3FB5"/>
+    <circle cx="124" cy="142" r="34" fill="#9B5BD6"/>
+    <circle cx="100" cy="196" r="32" fill="#6C2DB0"/>
+  </symbol>
+</svg>
+<header class="top">
+  <button class="logo" data-go="input" aria-label="FourDo 처음으로"><svg class="mark" aria-hidden="true"><use href="#grape"/></svg>FourDo</button>
+  <nav aria-label="주 메뉴">
+    <button data-go="input" data-nav="input">분석하기</button>
+    <button disabled title="준비 중인 기능이에요">내 도전 기록</button>
+    <button data-go="trust" data-nav="trust">서비스 신뢰도</button>
+  </nav>
+</header>
+
+<main>
+<!-- PAGE 1 -->
+<section id="input" class="view">
+  <div class="hero dark">
+    <h1>좋은 기회, 놓치지 않도록.</h1>
+    <p class="lime-line">지금의 나에게 맞는 도전인지 확인해 보세요.</p>
+    <svg class="grape-hero" aria-hidden="true"><use href="#grape"/></svg>
+  </div>
+  <form id="form" class="wrap card form">
+    <label class="full">공고 링크 또는 모집요강
+      <textarea name="posting" rows="4" placeholder="공고 링크를 붙여넣거나 모집요강을 직접 입력하세요" required></textarea>
+    </label>
+    <label>학년 · 전공
+      <input name="major" placeholder="예: 3학년 · 인공지능">
+    </label>
+    <label>주당 투자 가능 시간
+      <input name="hours" type="number" min="1" max="60" value="12">
+    </label>
+    <label class="full">바쁜 일정 (시험·아르바이트·동아리 등)
+      <input name="busy" placeholder="예: 11/16~11/20 중간고사, 주 2회 아르바이트">
+    </label>
+    <div class="full upload">
+      <span class="lbl">에브리타임 시간표 캡처 (선택)</span>
+      <button type="button" class="drop" id="drop">시간표 캡처 이미지를 끌어다 놓거나 눌러서 선택하세요<br>수업 시간을 피해서 하루별 할 일을 짜드려요 (PNG, JPG)</button>
+      <input id="tt" type="file" accept="image/*" hidden>
+      <div class="prev" id="ttPrev" hidden><img id="ttImg" alt="업로드한 시간표 미리보기"><span id="ttName"></span><button type="button" id="ttDel">삭제</button></div>
+      <p class="hint">이미지는 분석에만 쓰고 서버에 저장하지 않아요.</p>
+    </div>
+    <fieldset class="full">
+      <legend>보유 역량</legend>
+      <div class="chips" id="skills"></div>
+    </fieldset>
+    <label class="full">관련 경험
+      <input name="exp" placeholder="예: 팀 프로젝트 2회, 영상 편집 경험 없음">
+    </label>
+    <fieldset class="full">
+      <legend>팀 구성 상태</legend>
+      <div class="chips" id="team"></div>
+    </fieldset>
+    <div class="full cta-row">
+      <button class="btn lime" type="submit">내 도전 준비도 분석하기</button>
+      <p class="hint">분석에는 10~30초 정도 걸려요. 준비도는 합격 확률이 아니에요.</p>
+    </div>
+  </form>
+</section>
+
+<!-- PAGE 2 -->
+<section id="progress" class="view dark center-view">
+  <div class="wrap narrow">
+    <div class="orb" aria-hidden="true"></div>
+    <h2>나의 도전 가능성을 분석하고 있어요.</h2>
+    <ol class="steps" id="stepList"></ol>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="bar"></i></div>
+    <p class="hint">AI가 공고를 읽는 중이라 시간이 조금 걸릴 수 있어요.</p>
+  </div>
+</section>
+
+<!-- PAGE 3 -->
+<section id="result" class="view"></section>
+
+<!-- PAGE 4 -->
+<section id="plan" class="view"></section>
+
+<!-- PAGE 4-2: 하루별 할 일 -->
+<section id="daily" class="view"></section>
+
+<!-- PAGE 5 -->
+<section id="compare" class="view dark">
+  <div class="wrap">
+    <h2 class="c-title">같은 공고라도, 나에게 맞는 계획은 다릅니다.</h2>
+    <p class="sub">같은 공고, 같은 AI. 달라진 건 개인화 입력 하나예요.</p>
+    <div class="toggle" role="group" aria-label="개인화 전환">
+      <button data-p="off">개인화 OFF</button><button data-p="on" class="on">개인화 ON</button>
+    </div>
+    <div class="cmp" id="cmp"></div>
+    <div class="cta-row center"><button class="btn lime" data-go="trust">서비스 신뢰도 보기</button></div>
+  </div>
+</section>
+
+<!-- PAGE 6 -->
+<section id="trust" class="view"></section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
