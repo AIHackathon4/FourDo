@@ -63,7 +63,7 @@ def test_short_time_lowers_scope_biggest_saving_first():
 
 def test_nearly_full_time_is_tight():
     full = card(submissions=[{"name": "기획서", "requirement": "", "options": [opt("서식 채우기", "표준", 30)]}])
-    s = choose(full, student(weekday_hours=0.5, weekend_hours=1.5), TODAY)  # 가용 약 32h
+    s = choose(full, student(weekday_hours=0.9, weekend_hours=2.6), TODAY)  # 가용 약 33h
     assert s.work_capacity * 0.85 < 30 <= s.work_capacity and s.verdict == "준비하면 가능"
 
 
