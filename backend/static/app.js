@@ -170,7 +170,7 @@ document.querySelector(".toggle").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) renderCompare(b.dataset.p === "on");
 });
 
-/* 서비스 신뢰도: 실제 검수 결과가 없으면 '측정 전'으로 표시 (수치를 지어내지 않아요) */
+/* 서비스 신뢰도: 실제 검수 결과가 없으면 '측정 전'으로 표시 (수치를 지어내지 않도록 함) */
 function renderTrust() {
   $("#trust").innerHTML = `
   <div class="hero dark"><h1>AI의 분석, 어디까지 믿을 수 있을까요?</h1>
@@ -182,7 +182,7 @@ function renderTrust() {
       <span class="v">${m.synth ?? "측정 전"}</span></div>`).join("")}
     <p class="hint">검수가 끝나는 대로 결과를 공개해요.</p></div></div>`;
 }
-/* 에브리타임 시간표 업로드 */
+/* 에브리타임 시간표 (이미지로)업로드 */
 let TT = null, dayIdx = 0; const done = new Set();
 function setTT(f) {
   if (f && !f.type.startsWith("image/")) { alert("이미지 파일(PNG, JPG)만 올릴 수 있어요."); return; }
