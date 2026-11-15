@@ -1,5 +1,5 @@
 """FourDo 백엔드 (Flask + Gemini). 실행: python app.py → http://localhost:5000"""
-import datetime as dt, json, os, re
+import datetime as dt, json, os, re, time
 import requests
 from flask import Flask, jsonify, request
 from google import genai
@@ -83,21 +83,28 @@ def analyze():
         ai = None
         last_err = None
         for m in dict.fromkeys([MODEL, "gemini-4-hydrogen", "gemini-3.8-flash"]):
-            try:
-                resp = client.models.generate_content(
-                    model=m,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM,
-                        response_mime_type="application/json",
-                        max_output_tokens=16384,
-                        thinking_config=types.ThinkingConfig(thinking_level="LOW"),
-                    ),
-                )
-                ai = parse_json(resp.text)
+            for _ in range(2):
+                try:
+                    resp = client.models.generate_content(
+                        model=m,
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYSTEM,
+                            response_mime_type="application/json",
+                            max_output_tokens=16384,
+                            thinking_config=types.ThinkingConfig(thinking_level="LOW"),
+                        ),
+                    )
+                    ai = parse_json(resp.text)
+                    break
+                except Exception as err:
+                    last_err = err
+                    if "503" in str(err) or "UNAVAILABLE" in str(err):
+                        time.sleep(1.5)
+                    else:
+                        break
+            if ai is not None:
                 break
-            except Exception as err:
-                last_err = err
         if ai is None:
             raise last_err
     except Exception as e:
