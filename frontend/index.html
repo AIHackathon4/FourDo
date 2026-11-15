@@ -53,6 +53,13 @@
     <label class="full">바쁜 일정 (시험·아르바이트·동아리 등)
       <input name="busy" placeholder="예: 11/16~11/20 중간고사, 주 2회 아르바이트">
     </label>
+    <div class="full upload">
+      <span class="lbl">에브리타임 시간표 캡처 (선택)</span>
+      <button type="button" class="drop" id="drop">시간표 캡처 이미지를 끌어다 놓거나 눌러서 선택하세요<br>수업 시간을 피해서 하루별 할 일을 짜드려요 (PNG, JPG)</button>
+      <input id="tt" type="file" accept="image/*" hidden>
+      <div class="prev" id="ttPrev" hidden><img id="ttImg" alt="업로드한 시간표 미리보기"><span id="ttName"></span><button type="button" id="ttDel">삭제</button></div>
+      <p class="hint">데모에서는 이미지를 아직 읽지 않고, 예시 시간표 기준 결과가 나와요.</p>
+    </div>
     <fieldset class="full">
       <legend>보유 역량</legend>
       <div class="chips" id="skills"></div>
@@ -87,6 +94,9 @@
 
 <!-- PAGE 4 -->
 <section id="plan" class="view"></section>
+
+<!-- PAGE 4-2: 하루별 할 일 -->
+<section id="daily" class="view"></section>
 
 <!-- PAGE 5 -->
 <section id="compare" class="view dark">
