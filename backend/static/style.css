@@ -147,3 +147,31 @@ ul.plain{padding-left:18px;font-size:15px}
   .mh{display:none}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* hidden 속성이 label/flex 레이아웃에 덮이지 않게 */
+[hidden]{display:none!important}
+
+/* header account */
+.acct{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:15px;color:#CFC4E0}
+.acct button{color:#fff;padding:6px 14px;border:1px solid #5A4380;border-radius:999px}
+.acct button:hover{border-color:var(--lime)}
+
+/* login */
+.auth{max-width:440px;margin:-56px auto 56px;display:flex;flex-direction:column;gap:16px;position:relative;width:calc(100% - 40px)}
+.err{color:#B3261E;font-size:14px;min-height:0}
+.err:empty{display:none}
+.auth .btn[disabled]{opacity:.6;cursor:progress}
+
+/* history */
+.rec{display:flex;align-items:center;gap:12px;border-top:1px solid var(--line)}
+.rec:first-of-type{border-top:0}
+.rec-main{flex:1;text-align:left;padding:16px 4px;display:grid;gap:2px}
+.rec-main:hover b{color:var(--violet)}
+.rec-main small{color:var(--muted);font-size:13px}
+.rec-main .lv{font-size:14px;color:var(--violet)}
+.rec-del{color:var(--muted);font-size:13px;padding:6px 10px;text-decoration:underline}
+.rec-del:hover{color:#B3261E}
+.empty{padding:28px 0;text-align:center;color:var(--muted)}
+.empty .btn{margin-top:14px}
+.saved{font-size:14px;color:var(--ok-t);background:var(--ok);padding:10px 16px;border-radius:999px;font-weight:700}
+@media (max-width:760px){.acct{margin-left:0;width:100%}}
