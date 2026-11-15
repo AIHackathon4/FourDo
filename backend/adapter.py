@@ -9,15 +9,14 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from aihack4 import baselines as bl
-from aihack4.feasibility import Feasibility, Period, Profile
+from aihack4.feasibility import GOALS, LEVELS, STATUSES, Feasibility, Period, Profile
 
 DAYS = "월화수목금토일"
 
 # 프론트 역량 칩 → 엔진에 넘길 역량 이름. 작업 분해 LLM이 이 이름 중에서 맞는 역량을 고른다.
-# 칩에는 수준이 없어서 모두 '가능'으로 둔다(가정).
 SKILL_NAMES = {"기획": "기획(아이디어·기획서)", "디자인": "디자인", "개발": "개발(프로그래밍)",
                "영상": "영상 제작·편집", "발표": "발표·PPT", "글쓰기": "글쓰기"}
-DEFAULT_LEVEL = "가능"
+DEFAULT_LEVEL = "가능"  # 수준 없이 이름만 온 경우(예전 프론트)
 
 # 주당 시간 → 평일·주말 하루 시간. 주말 하루를 평일 하루의 2배로 본다(가정): 평일 5h + 주말 2×2h = 9h 단위.
 WEEKEND_RATIO = 2
@@ -104,6 +103,23 @@ def team_of(choice: str) -> tuple[str, int]:
     return "혼자", 1
 
 
+def parse_skills(items) -> dict[str, str]:
+    """[["개발", "능숙"], ...] 또는 ["개발", ...] → {"개발(프로그래밍)": "능숙", ...}"""
+    skills = {}
+    for item in items or []:
+        name, level = (item[0], item[1]) if isinstance(item, (list, tuple)) and len(item) == 2 else (item, DEFAULT_LEVEL)
+        skills[SKILL_NAMES.get(name, name)] = level if level in LEVELS else DEFAULT_LEVEL
+    return skills
+
+
+def parse_age(text) -> int | None:
+    try:
+        age = int(str(text).strip())
+    except ValueError:
+        return None
+    return age if 10 <= age <= 80 else None
+
+
 def to_profile(form: dict, today: date) -> tuple[Profile, dict]:
     """프론트 폼 → 엔진 프로필. 두 번째 값은 가정한 내용(응답의 compare 메모에 쓴다)."""
     grade, major = parse_grade_major(form.get("major", ""))
@@ -111,10 +127,13 @@ def to_profile(form: dict, today: date) -> tuple[Profile, dict]:
     weekday = round(weekly / (5 + 2 * WEEKEND_RATIO), 2)
     blocked, busy_note = parse_busy(form.get("busy", ""), today)
     team, size = team_of(form.get("team", "팀 없음"))
-    skills = {SKILL_NAMES.get(name, name): DEFAULT_LEVEL for name in form.get("skills", [])}
     exp_text = (form.get("exp") or "").strip()
+    status = form.get("status") if form.get("status") in STATUSES else "재학생"
     profile = Profile(
-        grade=grade, major=major, skills=skills, experience=parse_experience(exp_text), portfolio=exp_text,
+        status=status, grade=grade, school=(form.get("school") or "").strip(), major=major,
+        region=(form.get("region") or "").strip(), age=parse_age(form.get("age")),
+        skills=parse_skills(form.get("skills")), experience=parse_experience(exp_text), portfolio=exp_text,
+        goal=form.get("goal") if form.get("goal") in GOALS else "경험 쌓기",
         team=team, team_size=size, weekday_hours=weekday, weekend_hours=round(weekday * WEEKEND_RATIO, 2),
         blocked=blocked, note=busy_note,
     )
@@ -304,7 +323,7 @@ def compare(result: Feasibility, profile: Profile, today: date, deadline: date |
     if gaps:
         mine.append(["부족한 역량", gaps[0].split(" — ")[0] + " 부족 → 그만큼 시간을 더 잡았어요"])
     team = f"팀 {profile.team_size}명" if profile.team == "팀 있음" else "혼자"
-    skills = ", ".join(profile.skills) or "역량 선택 없음"
+    skills = ", ".join(f"{name.split('(')[0]} {level}" for name, level in profile.skills.items()) or "역량 선택 없음"
     grade = f"{profile.grade}학년 · " if profile.grade else ""
     return {"generic": lines, "genericNote": note, "mine": mine,
             "mineNote": f"{grade}주 {assumed['weekly']:g}시간 · {skills} · {team} 반영 (코드 계산)"}
@@ -320,8 +339,18 @@ def deadline_iso(notice: dict) -> str | None:
         return f"{notice['deadline']}T23:59:00+09:00"
 
 
+def session(analysis_id: str, result: Feasibility, answers: dict[str, bool], progress: dict[str, float]) -> dict:
+    """재판정·다시 짜기에 쓰는 정보. 아직 답하지 않은 자격 질문과 이미 답한 질문을 함께 보낸다."""
+    questions = [{"q": q, "answer": None} for q in result.questions]
+    questions += [{"q": q, "answer": a} for q, a in answers.items() if q not in result.questions]
+    return {"id": analysis_id, "questions": questions,
+            "progress": {"hours": round(sum(progress.values()), 1), "tasks": sorted(progress)}}
+
+
 def to_response(notice: dict, result: Feasibility, profile: Profile, today: date, *, generic: dict | None,
-                classes: list[dict], has_timetable: bool, assumed: dict, trust: list[dict], warnings: list[str]) -> dict:
+                classes: list[dict], has_timetable: bool, assumed: dict, trust: list[dict], warnings: list[str],
+                analysis_id: str = "", answers: dict[str, bool] | None = None,
+                progress: dict[str, float] | None = None) -> dict:
     deadline = date.fromisoformat(notice["deadline"]) if notice.get("deadline") else None
     weeks = week_plan(result, profile, today, deadline)
     reasons = [result.summary] if result.summary else []
@@ -343,4 +372,5 @@ def to_response(notice: dict, result: Feasibility, profile: Profile, today: date
         "compare": compare(result, profile, today, deadline, generic, weeks, assumed),
         "trust": trust,
         "daily": daily(result, profile, today, classes, has_timetable),
+        "session": session(analysis_id, result, answers or {}, progress or {}),
     }

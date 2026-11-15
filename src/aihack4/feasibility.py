@@ -206,6 +206,7 @@ class Feasibility:
     this_week: list[str] = field(default_factory=list)
     tips: list[str] = field(default_factory=list)
     cost: float = 0.0
+    raw: dict | None = None  # LLM 작업 분해 원본(재판정·다시 짜기에서 LLM을 다시 부르지 않으려고 보관)
 
 
 # ---------- 코드가 하는 계산 ----------
@@ -246,7 +247,11 @@ def build_tasks(raw_tasks: list[dict], profile: Profile) -> list[Task]:
 
 def schedule(tasks: list[Task], days: list[date], profile: Profile) -> float:
     """작업 시간 비율대로 작업일의 시간을 나눠 배치한다(주말처럼 시간이 많은 날에 더 많이 배치).
-    목표가 수상이면 최대 시간 기준으로 잡는다."""
+    목표가 수상이면 최대 시간 기준으로 잡는다. 돌려주는 값은 여유 있게 하려면 필요한 시간(목표 시간)이다.
+
+    목표 시간이 쓸 수 있는 시간보다 많으면(빠듯함), 작업 시간을 최소~목표 사이에서 같은 비율로 줄여
+    쓸 수 있는 시간에 맞춘다. 그래야 계획이 학생의 하루 시간을 넘지 않는다.
+    최소 시간조차 넘으면(어려움) 최소 시간으로 잡는다(이때는 계획이 가용 시간을 넘는다)."""
     for task in tasks:
         task.hours = task.hours_max if profile.goal == "수상 목표" else round((task.hours_min + task.hours_max) / 2, 1)
     total = sum(task.hours for task in tasks)
@@ -254,15 +259,22 @@ def schedule(tasks: list[Task], days: list[date], profile: Profile) -> float:
         return total
     ends = list(accumulate(profile.hours_on(day) for day in days))  # 각 작업일이 끝날 때까지의 누적 시간
     capacity = ends[-1]
+    if total > capacity:
+        low = sum(task.hours_min for task in tasks)
+        ratio = (capacity - low) / (total - low) if capacity > low and total > low else 0.0
+        for task in tasks:
+            task.hours = round(task.hours_min + (task.hours - task.hours_min) * ratio, 1)
+    planned = sum(task.hours for task in tasks)
 
     def day_at(position: float) -> int:
         return min(len(days) - 1, bisect_right(ends, position))
 
+    scale = capacity / planned  # 계획 시간 비율대로 전체 작업일에 펼친다
     done = 0.0
     for task in tasks:
-        first = day_at(done / total * capacity)
+        first = day_at(done * scale)
         done += task.hours
-        last = max(first, day_at(done / total * capacity - 1e-9))
+        last = max(first, day_at(done * scale - 1e-9))
         task.start, task.end = days[first].isoformat(), days[last].isoformat()
     tasks[-1].start = tasks[-1].end = days[-1].isoformat()
     return total
@@ -413,12 +425,30 @@ def decide(checks: list[Check]) -> str:
     return "참여 가능"
 
 
+def apply_progress(tasks: list[Task], progress: dict[str, float], profile: Profile) -> list[Task]:
+    """이미 한 작업 시간(작업 이름 → 시간)을 빼고 남은 작업만 돌려준다. 남은 비율만큼 최소·최대 시간을 줄인다.
+    다 끝낸 작업은 빼고, 최종 점검·제출은 항상 남긴다."""
+    left_tasks = []
+    for task in tasks:
+        done = progress.get(task.name, 0.0)
+        ideal = task.hours_max if profile.goal == "수상 목표" else (task.hours_min + task.hours_max) / 2
+        left = max(0.0, 1 - done / ideal) if ideal else 1.0
+        if left < 0.05 and task.name != FINAL_TASK["name"]:
+            continue
+        task.hours_min, task.hours_max = round(task.hours_min * left, 1), round(task.hours_max * left, 1)
+        left_tasks.append(task)
+    return left_tasks
+
+
 def evaluate(notice: dict, profile: Profile, raw: dict, today: date,
-             answers: dict[str, bool] | None = None) -> Feasibility:
-    """LLM 작업 분해 결과와 공고의 자격 조건을 받아 판정과 일정을 계산한다. LLM을 부르지 않는다."""
+             answers: dict[str, bool] | None = None, progress: dict[str, float] | None = None) -> Feasibility:
+    """LLM 작업 분해 결과와 공고의 자격 조건을 받아 판정과 일정을 계산한다. LLM을 부르지 않는다.
+    progress: 이미 한 작업 시간(작업 이름 → 시간). 주면 남은 작업만으로 판정하고 일정을 다시 짠다."""
     deadline = date.fromisoformat(notice["deadline"]) if notice.get("deadline") else None
     days_left = (deadline - today).days if deadline else None
     tasks = build_tasks(raw["tasks"], profile)
+    if progress:
+        tasks = apply_progress(tasks, progress, profile)
     days = work_days(today, deadline, profile) if deadline else []
     target = schedule(tasks, days, profile)
     need_min, need_max = sum(t.hours_min for t in tasks), sum(t.hours_max for t in tasks)
@@ -497,7 +527,13 @@ def judge(client, model: str, notice: dict, profile: Profile, today: date | None
     raw, decompose_cost = decompose(client, model, notice, profile, today)
     cost += decompose_cost
     result = evaluate(notice, profile, raw, today, answers)
+    result.raw = raw
+    result.cost = cost + advise(client, model, notice, profile, result, today)
+    return result
 
+
+def advise(client, model: str, notice: dict, profile: Profile, result: Feasibility, today: date) -> float:
+    """코드가 계산한 판정·부족한 점·일정을 조언 문장으로 풀어 result에 채운다. 비용을 돌려준다."""
     facts = {
         "기준일": today.isoformat(), "마감일": notice.get("deadline"), "목표": profile.goal, "판정": result.verdict,
         "확인 결과": [asdict(check) for check in result.checks], "부족한 점": result.gaps,
@@ -506,8 +542,7 @@ def judge(client, model: str, notice: dict, profile: Profile, today: date | None
     }
     advice, advice_cost = _complete(client, model, ADVICE_SYSTEM, _wrap(facts), "contest_advice", ADVICE_SCHEMA)
     result.summary, result.this_week, result.tips = advice["summary"], advice["this_week"][:3], advice["tips"][:4]
-    result.cost = cost + advice_cost
-    return result
+    return advice_cost
 
 
 def _wrap(data: dict) -> str:

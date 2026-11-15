@@ -105,3 +105,30 @@ def test_blocked_day_has_no_free_time():
 def test_blockers_from_gaps():
     _, result, data = build()
     assert any("영상" in b["d"] for b in data["blockers"])  # 영상 편집 역량이 없어 부족으로 잡힌다
+
+
+def test_new_profile_inputs():
+    form = {**FORM, "skills": [["개발", "능숙"], ["영상", "입문"]], "school": "서강대학교", "region": "서울",
+            "status": "휴학생", "age": "23", "goal": "수상 목표"}
+    profile, _ = adapter.to_profile(form, TODAY)
+    assert profile.skills == {"개발(프로그래밍)": "능숙", "영상 제작·편집": "입문"}
+    assert (profile.school, profile.region, profile.status, profile.age, profile.goal) == \
+        ("서강대학교", "서울", "휴학생", 23, "수상 목표")
+    profile, _ = adapter.to_profile({**form, "status": "외계인", "age": "abc", "goal": ""}, TODAY)
+    assert (profile.status, profile.age, profile.goal) == ("재학생", None, "경험 쌓기")
+
+
+def test_region_condition_fails_with_region_and_session_lists_questions():
+    notice = {**NOTICE, "eligibility_conditions": [
+        {"type": "region", "allowed": ["대전"], "min": None, "max": None, "quote": "대전 거주자", "question": "대전에 사나요?"},
+        {"type": "other", "allowed": [], "min": None, "max": None, "quote": "OO 회원", "question": "OO 회원인가요?"}]}
+    seoul, _ = adapter.to_profile({**FORM, "region": "서울"}, TODAY)
+    assert evaluate(notice, seoul, RAW, TODAY).verdict == "어려움"  # 지역을 알면 바로 걸러진다
+    unknown, assumed = adapter.to_profile(FORM, TODAY)
+    result = evaluate(notice, unknown, RAW, TODAY, answers={"대전에 사나요?": True})
+    data = adapter.to_response(notice, result, unknown, TODAY, generic=None, classes=[], has_timetable=False,
+                               assumed=assumed, trust=[], warnings=[], analysis_id="abc",
+                               answers={"대전에 사나요?": True}, progress={"기획서 작성": 2})
+    qs = {q["q"]: q["answer"] for q in data["session"]["questions"]}
+    assert qs == {"OO 회원인가요?": None, "대전에 사나요?": True}
+    assert data["session"]["id"] == "abc" and data["session"]["progress"]["hours"] == 2

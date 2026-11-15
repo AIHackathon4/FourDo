@@ -70,13 +70,48 @@ function chips(el, items, multi) {
     else el.querySelectorAll(".chip").forEach(x => x.setAttribute("aria-pressed", x === c));
   });
 }
-chips($("#skills"), ["기획", "디자인", "개발", "영상", "발표", "글쓰기"], true);
+/* 역량 칩: 누를 때마다 입문 → 가능 → 능숙 → 해제 */
+const LEVELS = ["입문", "가능", "능숙"];
+function skillChips(el, names) {
+  el.innerHTML = names.map(n => `<button type="button" class="chip" data-name="${n}" data-level="" aria-pressed="false">${n}</button>`).join("");
+  el.addEventListener("click", e => {
+    const c = e.target.closest(".chip"); if (!c) return;
+    setLevel(c, LEVELS[LEVELS.indexOf(c.dataset.level) + 1] || "");
+  });
+}
+function setLevel(c, level) {
+  c.dataset.level = level; c.setAttribute("aria-pressed", String(Boolean(level)));
+  c.textContent = level ? `${c.dataset.name} · ${level}` : c.dataset.name;
+}
+const pickedSkills = () => [...document.querySelectorAll("#skills .chip[aria-pressed=true]")].map(c => [c.dataset.name, c.dataset.level]);
+const picked = id => $(`#${id} .chip[aria-pressed=true]`).textContent;
+skillChips($("#skills"), ["기획", "디자인", "개발", "영상", "발표", "글쓰기"]);
 chips($("#team"), ["팀 없음", "팀원 1~2명 있음", "팀 구성 완료"], false);
+chips($("#goal"), ["경험 쌓기", "수상 목표"], false);
+
+/* 프로필은 이 브라우저에만 저장(공고는 저장하지 않음) */
+const PROFILE_KEY = "fourdo-profile";
+const PROFILE_FIELDS = ["major", "hours", "school", "region", "status", "age", "busy", "exp"];
+function saveProfile() {
+  const f = $("#form"), data = { skills: pickedSkills(), team: picked("team"), goal: picked("goal") };
+  PROFILE_FIELDS.forEach(k => data[k] = f.elements[k].value);
+  try { localStorage.setItem(PROFILE_KEY, JSON.stringify(data)); } catch {}
+}
+function loadProfile() {
+  let data = null;
+  try { data = JSON.parse(localStorage.getItem(PROFILE_KEY) || "null"); } catch {}
+  if (!data) return;
+  const f = $("#form");
+  PROFILE_FIELDS.forEach(k => { if (data[k] != null) f.elements[k].value = data[k]; });
+  (data.skills || []).forEach(([name, level]) => { const c = $(`#skills .chip[data-name="${name}"]`); if (c) setLevel(c, level); });
+  ["team", "goal"].forEach(id => document.querySelectorAll(`#${id} .chip`).forEach(c => c.setAttribute("aria-pressed", String(c.textContent === data[id]))));
+}
+loadProfile();
 
 /* 분석 진행 (데모용 시뮬레이션) */
 const STEPS = ["공고 핵심 정보 파악", "지원 조건 및 일정 확인", "시간표 기반 가용 시간 계산", "하루별 맞춤 할 일 구성"];
 $("#form").addEventListener("submit", e => {
-  e.preventDefault(); go("progress");
+  e.preventDefault(); saveProfile(); go("progress");
   const req = analyze(new FormData(e.target));
   const list = $("#stepList"), bar = $("#bar"); let i = 0;
   const tick = () => {
@@ -86,15 +121,18 @@ $("#form").addEventListener("submit", e => {
     }).join("");
     bar.style.width = (i / STEPS.length * 100) + "%";
     if (i++ < STEPS.length) setTimeout(tick, 900);
-    else req.then(r => { if (!r) return go("input"); DATA = r; dayIdx = 0; done.clear(); renderResult(); renderPlan(); renderDaily(); renderCompare(true); renderTrust(); go("result"); });
+    else req.then(r => { if (!r) return go("input"); Object.keys(answers).forEach(k => delete answers[k]); show(r); go("result"); });
   };
   tick();
 });
 
+function show(r) { DATA = r; dayIdx = 0; done.clear(); renderResult(); renderPlan(); renderDaily(); renderCompare(true); renderTrust(); }
+
 /* 서버 호출: 입력 오류(4xx)는 안내하고, 서버 장애·연결 실패 시 예시 데이터로 대체 */
 async function analyze(fd) {
-  fd.set("skills", JSON.stringify([...document.querySelectorAll("#skills .chip[aria-pressed=true]")].map(c => c.textContent)));
-  fd.set("team", $("#team .chip[aria-pressed=true]").textContent);
+  fd.set("skills", JSON.stringify(pickedSkills()));
+  fd.set("team", picked("team"));
+  fd.set("goal", picked("goal"));
   if (TT) fd.set("timetable", TT);
   try {
     const r = await fetch("/api/analyze", { method: "POST", body: fd });
@@ -103,6 +141,43 @@ async function analyze(fd) {
     return await r.json();
   } catch (err) { console.warn(err); return DEMO; }
 }
+
+/* 재판정·다시 짜기: 같은 분석에서 코드만 다시 계산(작업 분해는 그대로) */
+async function recompute(path, body, btn) {
+  if (!DATA.session || !DATA.session.id) { alert("예시 결과에서는 쓸 수 없어요. 먼저 분석해 주세요."); return; }
+  const label = btn.textContent; btn.disabled = true; btn.textContent = "다시 계산하는 중…";
+  try {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: DATA.session.id, ...body }) });
+    const data = await r.json();
+    if (!r.ok) { alert(data.error || "다시 계산하지 못했어요."); return null; }
+    return data;
+  } catch (err) { console.warn(err); alert("서버에 연결하지 못했어요."); return null; }
+  finally { btn.disabled = false; btn.textContent = label; }
+}
+
+/* 자격 확인 질문: 예/아니오로 답하면 그 답으로 다시 판정 */
+const answers = {};
+function questionsCard() {
+  const qs = (DATA.session && DATA.session.questions) || [];
+  if (!qs.length) return "";
+  qs.forEach(q => { if (!(q.q in answers)) answers[q.q] = q.answer; });
+  return `<div class="card" id="questions"><h3>참가 자격 확인 질문</h3>
+    <p class="hint" style="margin:0 0 10px">공고 조건 중 프로필만으로 확인할 수 없는 것이에요. 답하면 다시 판정해요.</p>
+    ${qs.map((q, i) => `<div class="req"><span class="badge ${answers[q.q] == null ? "needs_check" : answers[q.q] ? "met" : "lacking"}">${answers[q.q] == null ? "확인 필요" : answers[q.q] ? "예" : "아니오"}</span>
+      <div>${q.q}</div><div class="chips">
+        <button type="button" class="chip" data-q="${i}" data-a="1" aria-pressed="${answers[q.q] === true}">예</button>
+        <button type="button" class="chip" data-q="${i}" data-a="0" aria-pressed="${answers[q.q] === false}">아니오</button></div></div>`).join("")}
+    <div class="actions" style="margin-top:14px"><button class="btn primary" type="button" id="rejudge">답변 반영해서 다시 판정하기</button></div></div>`;
+}
+$("#result").addEventListener("click", async e => {
+  const c = e.target.closest("[data-q]");
+  if (c) {
+    const q = DATA.session.questions[+c.dataset.q].q, a = c.dataset.a === "1";
+    answers[q] = answers[q] === a ? null : a; renderResult(); return;
+  }
+  const b = e.target.closest("#rejudge");
+  if (b) { const r = await recompute("/api/rejudge", { answers }, b); if (r) { show(r); go("result"); } }
+});
 
 /* 결과 */
 function renderResult() {
@@ -125,6 +200,7 @@ function renderResult() {
       ${d.requirements.map(r => `<div class="req"><span class="badge ${r.status}">${STATUS[r.status]}</span>
         <div>${r.label}<small>${r.criterion}</small></div><span class="badge src ${r.source}">${SRC[r.source]}</span></div>`).join("")}</div>
   </div>
+  ${questionsCard() ? `<div class="grid one" style="margin-top:0">${questionsCard()}</div>` : ""}
   <div class="grid" style="margin-top:0">
     <div class="card lime-card"><h3>이번 주 추천 작업</h3><b>${d.thisWeek.title}</b>
       <p class="hint" style="color:var(--deep)">약 ${d.thisWeek.hours}시간 · ${d.thisWeek.note}</p></div>
@@ -213,9 +289,22 @@ function renderDaily() {
         ${d.todos.map((t, k) => `<label class="todo"><input type="checkbox" data-k="${k}" ${done.has(dayIdx + "-" + k) ? "checked" : ""}>
           <span>${t[1]}<small>${t[0]} · ${t[2]}시간</small></span></label>`).join("") || '<p class="hint">할 일이 없어요. 쉬어가요.</p>'}</div>
     </div></div>
-  <div class="actions"><button class="btn primary" data-go="compare">개인화 비교 보기</button>
+  ${progressNote()}
+  <div class="actions"><button class="btn primary" type="button" id="replan" ${done.size ? "" : "disabled"}>체크한 일 반영해서 다시 짜기</button>
+    <button class="btn" data-go="compare">개인화 비교 보기</button>
     <button class="btn" data-go="plan">주차별 계획으로</button></div></div>`;
 }
+function progressNote() {
+  const p = DATA.session && DATA.session.progress;
+  if (!p || !p.hours) return "";
+  return `<p class="hint" style="text-align:center">지금까지 끝낸 작업 ${p.hours}시간을 빼고 남은 일정을 다시 짰어요 · 판정: ${DATA.meta.verdict}</p>`;
+}
+$("#daily").addEventListener("click", async e => {
+  const b = e.target.closest("#replan"); if (!b) return;
+  const doneItems = [...done].map(key => { const [d, k] = key.split("-").map(Number); const t = DATA.daily[d].todos[k]; return [t[1], t[2]]; });
+  const r = await recompute("/api/replan", { done: doneItems }, b);
+  if (r) { show(r); go("daily"); }
+});
 $("#daily").addEventListener("click", e => {
   const b = e.target.closest("[data-day]"); if (b) { dayIdx = +b.dataset.day; renderDaily(); }
 });

@@ -12,6 +12,8 @@ import json
 import logging
 import os
 import sys
+import uuid
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -28,7 +30,7 @@ load_dotenv(ROOT / ".env")
 from aihack4 import baselines as bl  # noqa: E402
 from aihack4.collector import intake  # noqa: E402
 from aihack4.collector.fetcher import Fetcher  # noqa: E402
-from aihack4.feasibility import judge  # noqa: E402
+from aihack4.feasibility import advise, evaluate, judge  # noqa: E402
 
 import adapter  # noqa: E402
 
@@ -102,6 +104,28 @@ def health():
     return {"ok": True, "engine": "podo"}
 
 
+# 분석 한 번의 재료(공고, 프로필, LLM 작업 분해 등)를 잠깐 보관한다. 재판정·다시 짜기는 이걸로 코드만 다시 돌린다.
+# 데모용 메모리 보관이라 서버를 다시 켜면 사라진다(그때는 다시 분석).
+SESSIONS: OrderedDict[str, dict] = OrderedDict()
+MAX_SESSIONS = 200
+
+
+def remember(state: dict) -> str:
+    analysis_id = uuid.uuid4().hex
+    SESSIONS[analysis_id] = state
+    while len(SESSIONS) > MAX_SESSIONS:
+        SESSIONS.popitem(last=False)
+    return analysis_id
+
+
+def respond(analysis_id: str, state: dict, result):
+    return jsonify(adapter.to_response(
+        state["notice"], result, state["profile"], state["today"], generic=state["generic"],
+        classes=state["classes"] or [], has_timetable=state["classes"] is not None, assumed=state["assumed"],
+        trust=TRUST, warnings=state["warnings"], analysis_id=analysis_id, answers=state["answers"],
+        progress=state["progress"]))
+
+
 @app.post("/api/analyze")
 def analyze():
     f = request.form
@@ -124,7 +148,9 @@ def analyze():
     today = datetime.now(KST).date()
     profile, assumed = adapter.to_profile(
         {"major": f.get("major", ""), "hours": hours, "busy": f.get("busy", ""), "skills": skills,
-         "exp": f.get("exp", ""), "team": f.get("team", "팀 없음")}, today)
+         "exp": f.get("exp", ""), "team": f.get("team", "팀 없음"), "school": f.get("school", ""),
+         "region": f.get("region", ""), "status": f.get("status", ""), "age": f.get("age", ""),
+         "goal": f.get("goal", "")}, today)
 
     with ThreadPoolExecutor(max_workers=3) as pool:
         classes_job = pool.submit(timetable_classes, image, img.mimetype) if image else None
@@ -145,10 +171,59 @@ def analyze():
         generic = generic_job.result()
         classes = classes_job.result() if classes_job else None
 
-    response = adapter.to_response(
-        notice, result, profile, today, generic=generic, classes=classes or [], has_timetable=classes is not None,
-        assumed=assumed, trust=TRUST, warnings=warnings)
-    return jsonify(response)
+    state = {"notice": notice, "profile": profile, "raw": result.raw, "today": today, "generic": generic,
+             "classes": classes, "assumed": assumed, "warnings": warnings, "answers": {}, "progress": {}}
+    return respond(remember(state), state, result)
+
+
+def recompute(state: dict):
+    """LLM 작업 분해는 그대로 두고 코드로 판정·일정을 다시 계산한다. 조언 문장만 LLM으로 다시 쓴다."""
+    today = datetime.now(KST).date()
+    state["today"] = today
+    if state["notice"].get("deadline") and date.fromisoformat(state["notice"]["deadline"]) < today:
+        return judge(None, "", state["notice"], state["profile"], today)  # 마감 지남: LLM을 부르지 않고 끝난다
+    result = evaluate(state["notice"], state["profile"], state["raw"], today, state["answers"] or None,
+                      state["progress"] or None)
+    try:
+        client, model = llm()
+        advise(client, model, state["notice"], state["profile"], result, today)
+    except Exception as error:  # 조언 문장이 없어도 판정과 일정은 보여 준다
+        log.warning("advice: %s", error)
+    return result
+
+
+def session_or_error(body: dict):
+    state = SESSIONS.get(str(body.get("id", "")))
+    if state is None:
+        return None, (jsonify(error="분석 기록이 만료됐어요. 다시 분석해 주세요."), 410)
+    return state, None
+
+
+@app.post("/api/rejudge")
+def rejudge():
+    """자격 확인 질문에 예/아니오로 답하면 그 답을 프로필보다 우선해 다시 판정한다."""
+    body = request.get_json(silent=True) or {}
+    state, error = session_or_error(body)
+    if error:
+        return error
+    answers = body.get("answers") or {}
+    state["answers"] = {str(q): bool(a) for q, a in answers.items() if a is not None}
+    return respond(body["id"], state, recompute(state))
+
+
+@app.post("/api/replan")
+def replan():
+    """하루별 할 일에서 체크한 시간을 빼고 남은 작업으로 판정과 일정을 다시 짠다."""
+    body = request.get_json(silent=True) or {}
+    state, error = session_or_error(body)
+    if error:
+        return error
+    for name, hours in body.get("done") or []:
+        try:
+            state["progress"][str(name)] = state["progress"].get(str(name), 0.0) + max(0.0, float(hours))
+        except (TypeError, ValueError):
+            continue
+    return respond(body["id"], state, recompute(state))
 
 
 if __name__ == "__main__":

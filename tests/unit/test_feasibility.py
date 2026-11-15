@@ -179,3 +179,23 @@ def test_closed_notice_is_judged_without_llm():
     llm = FakeLLM([])
     result = judge(llm, "m", notice(deadline="2026-11-01"), profile(), TODAY)
     assert result.verdict == "어려움" and llm.calls == []
+
+
+def test_tight_schedule_fits_available_hours():
+    """빠듯함: 목표 시간이 가용 시간보다 많으면 작업 시간을 최소~목표 사이로 줄여 하루 시간을 넘지 않게 짠다."""
+    p = profile(weekday_hours=1, weekend_hours=1)  # 7일 × 1시간 = 7시간
+    result = evaluate(notice(deadline="2026-11-17"), p, raw(task(low=4, high=8)), TODAY)
+    assert result.verdict == "준비하면 가능"
+    assert result.target_hours > result.available_hours  # 판정 기준(목표 시간)은 그대로
+    assert sum(t.hours for t in result.tasks) == pytest.approx(result.available_hours, abs=0.2)
+    assert all(t.hours >= t.hours_min for t in result.tasks)
+
+
+def test_progress_removes_done_work_and_replans():
+    p = profile(weekday_hours=1, weekend_hours=1)
+    first = evaluate(notice(deadline="2026-11-17"), p, raw(task(name="자료 조사", low=2, high=2), task(low=4, high=8)), TODAY)
+    again = evaluate(notice(deadline="2026-11-17"), p, raw(task(name="자료 조사", low=2, high=2), task(low=4, high=8)), TODAY,
+                     progress={"자료 조사": 2, "기획서 작성": 3})
+    assert [t.name for t in again.tasks] == ["기획서 작성", "최종 점검 및 제출"]  # 다 한 작업은 빠진다
+    assert again.need_min < first.need_min and again.target_hours < first.target_hours
+    assert again.verdict == "참여 가능"  # 남은 일이 줄어 여유가 생긴다

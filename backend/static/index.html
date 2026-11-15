@@ -50,6 +50,18 @@
     <label>주당 투자 가능 시간
       <input name="hours" type="number" min="1" max="60" value="12">
     </label>
+    <label>학교
+      <input name="school" placeholder="예: 서강대학교">
+    </label>
+    <label>거주 지역
+      <select name="region"><option value="">선택 안 함</option><option>서울</option><option>경기</option><option>인천</option><option>강원</option><option>충북</option><option>충남</option><option>대전</option><option>세종</option><option>전북</option><option>전남</option><option>광주</option><option>경북</option><option>경남</option><option>대구</option><option>울산</option><option>부산</option><option>제주</option></select>
+    </label>
+    <label>신분
+      <select name="status"><option>재학생</option><option>휴학생</option><option>졸업예정자</option><option>대학원생</option><option>졸업생</option></select>
+    </label>
+    <label>나이 (만)
+      <input name="age" type="number" min="15" max="60" placeholder="예: 22">
+    </label>
     <label class="full">바쁜 일정 (시험·아르바이트·동아리 등)
       <input name="busy" placeholder="예: 11/16~11/20 중간고사, 주 2회 아르바이트">
     </label>
@@ -61,7 +73,7 @@
       <p class="hint">이미지는 분석에만 쓰고 서버에 저장하지 않아요.</p>
     </div>
     <fieldset class="full">
-      <legend>보유 역량</legend>
+      <legend>보유 역량 <span class="hint">누를 때마다 입문 → 가능 → 능숙 → 선택 해제</span></legend>
       <div class="chips" id="skills"></div>
     </fieldset>
     <label class="full">관련 경험
@@ -71,9 +83,13 @@
       <legend>팀 구성 상태</legend>
       <div class="chips" id="team"></div>
     </fieldset>
+    <fieldset class="full">
+      <legend>목표</legend>
+      <div class="chips" id="goal"></div>
+    </fieldset>
     <div class="full cta-row">
       <button class="btn lime" type="submit">내 도전 준비도 분석하기</button>
-      <p class="hint">분석에는 10~30초 정도 걸려요. 준비도는 합격 확률이 아니에요.</p>
+      <p class="hint">분석에는 30초~1분 정도 걸려요. 준비도는 합격 확률이 아니에요. 프로필은 이 브라우저에만 저장돼요.</p>
     </div>
   </form>
 </section>
