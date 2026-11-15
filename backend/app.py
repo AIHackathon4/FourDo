@@ -1,13 +1,13 @@
-"""FourDo 백엔드 (Flask + Claude). 실행: python app.py → http://localhost:5000"""
-import base64, datetime as dt, json, os, re
+"""FourDo 백엔드 (Flask + Gemini). 실행: python app.py → http://localhost:5000"""
+import datetime as dt, json, os, re
 import requests
-from anthropic import Anthropic
 from flask import Flask, jsonify, request
+from google import genai
+from google.genai import types
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
-client = Anthropic()  # ANTHROPIC_API_KEY 환경변수 사용
-MODEL = os.getenv("MODEL", "claude-sonnet-4-6")  
+MODEL = os.getenv("MODEL", "gemini-4-hydrogen")
 KST = dt.timezone(dt.timedelta(hours=9))
 DAYS = "월화수목금토일"
 IMG_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
@@ -17,15 +17,15 @@ SYSTEM = """너는 대학생의 공모전·대외활동 준비를 돕는 분석�
 {
  "posting":{"title":str,"organizer":str,"deadline":"ISO8601(+09:00) 또는 null"},
  "requirements":[{"label":str,"criterion":"학생 상황과 비교한 한 줄","status":"met|caution|lacking|needs_check"}],
- "time":{"min":int,"max":int},            // 준비에 필요한 총 시간
+ "time":{"min":int,"max":int},
  "readiness":{"label":"짧은 한 줄","reasons":[str,str]},
  "thisWeek":{"title":str,"hours":number,"note":str},
  "blockers":[{"d":"막는 요소","s":"해결 방법"}],
- "weeks":[{"w":1,"label":str,"rest":bool,"tasks":[[str,hours]]}],   // 최대 6주, 시험·바쁜 주는 rest
+ "weeks":[{"w":1,"label":str,"rest":bool,"tasks":[[str,hours]]}],
  "fallbacks":[str],
  "compare":{"generic":[str,str,str],"genericNote":str,"mine":[[str,str]],"mineNote":str},
- "classes":[{"day":0,"start":"HH:MM","end":"HH:MM","name":str}],     // 시간표 이미지가 있을 때만, 월=0
- "todos":[{"date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","title":str,"hours":number}]  // 오늘 이후 7일, 수업과 겹치지 않게
+ "classes":[{"day":0,"start":"HH:MM","end":"HH:MM","name":str}],
+ "todos":[{"date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","title":str,"hours":number}]
 }"""
 
 def hm(t): h, m = t.split(":"); return int(h) * 60 + int(m)
@@ -44,6 +44,8 @@ def read_posting(text):
     return text[:12000]
 
 def parse_json(raw):
+    if not raw or "{" not in raw:
+        raise ValueError(f"AI 응답에 JSON이 없어요: {raw!r}")
     return json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
 
 @app.get("/")
@@ -70,18 +72,26 @@ def analyze():
     now = dt.datetime.now(KST)
     profile = (f"오늘: {now:%Y-%m-%d} ({DAYS[now.weekday()]})\n학년·전공: {f.get('major','')}\n주당 투자 가능 시간: {hours}시간\n"
                f"바쁜 일정: {f.get('busy','')}\n보유 역량: {f.get('skills','[]')}\n관련 경험: {f.get('exp','')}\n팀 구성: {f.get('team','')}")
-    content = []
+    contents = []
     if img:
-        content.append({"type": "image", "source": {"type": "base64", "media_type": img.mimetype,
-                        "data": base64.b64encode(img.read()).decode()}})
-        content.append({"type": "text", "text": "위 이미지는 학생의 에브리타임 시간표야. classes에 수업을 추출해."})
-    content.append({"type": "text", "text": f"[공고]\n{posting}\n\n[학생 프로필]\n{profile}"})
+        contents.append(types.Part.from_bytes(data=img.read(), mime_type=img.mimetype))
+        contents.append("위 이미지는 학생의 에브리타임 시간표야. classes에 수업을 추출해.")
+    contents.append(f"[공고]\n{posting}\n\n[학생 프로필]\n{profile}")
 
     try:
-        resp = client.messages.create(model=MODEL, max_tokens=4000, system=SYSTEM,
-                                      messages=[{"role": "user", "content": content}])
-        ai = parse_json(resp.content[0].text)
-    except Exception as e:  # API 오류·JSON 파싱 실패
+        client = genai.Client()  # GEMINI_API_KEY 환경변수 자동 사용
+        resp = client.models.generate_content(
+            model=MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM,
+                response_mime_type="application/json",
+                max_output_tokens=16384,
+                thinking_config=types.ThinkingConfig(thinking_level="low"),
+            ),
+        )
+        ai = parse_json(resp.text)
+    except Exception as e:
         app.logger.exception(e)
         return jsonify(error="분석에 실패했어요. 잠시 후 다시 시도해 주세요."), 502
     return jsonify(build(ai, now, hours, bool(img)))
