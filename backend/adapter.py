@@ -282,15 +282,7 @@ def requirements(strategy: Strategy) -> list[dict]:
 
 
 def strategy_view(choice: Choice, profile: Profile, card: dict) -> dict:
-    """제출물 하나의 추천·선택 방법과, 학생이 바꿔 고를 수 있는 모든 방법(할 수 없는 것은 이유와 함께)."""
-    sub = next((s for s in card["submissions"] if s["name"] == choice.submission), {"options": []})
-    options = []
-    for option in sub["options"]:
-        ok, _, missing = can_do(option, profile)
-        options.append({"name": option["name"], "tier": TIER_LABEL[option["tier"]], "how": option["how"],
-                        "hours": option_hours(option, profile), "possible": ok,
-                        "why": "" if ok else f"{', '.join(missing)} 필요",
-                        "chosen": option is choice.option, "recommended": option["name"] == choice.recommended})
+    """제출물 하나에 추천한 방법과 이유."""
     picked = choice.option
     scale = choice.hours / picked["hours"] if picked and picked["hours"] else 1.0  # 단계 시간도 보정한 시간으로 보여 준다
     # 누가 맡는지는 팀일 때만 보여 준다. '보완'은 익히면서 한다는 뜻
@@ -303,8 +295,7 @@ def strategy_view(choice: Choice, profile: Profile, card: dict) -> dict:
         "how": picked["how"] if picked else "",
         "hours": choice.hours,
         "steps": [[s["name"], round(s["hours"] * scale, 1)] for s in picked["steps"]] if picked else [],
-        "who": who, "reasons": choice.reasons, "picked": choice.picked, "substitute": choice.substitute,
-        "options": options,
+        "who": who, "reasons": choice.reasons, "substitute": choice.substitute,
     }
 
 
@@ -316,7 +307,7 @@ def blockers(strategy: Strategy, profile: Profile) -> list[dict]:
                         "s": f"{choice.reasons[0]}. 이 역량이 있는 팀원과 함께하면 할 수 있어요."})
         elif stretched(choice.who):
             out.append({"d": f"{choice.submission}에 필요한 {', '.join(stretched(choice.who))} 역량이 조금 모자라요",
-                        "s": "익히는 시간까지 넉넉히 잡았어요. 부담되면 '나의 맞춤 전략'에서 다른 방법을 골라 보세요."})
+                        "s": "익히는 시간까지 넉넉히 잡았어요. 막히면 시간을 더 확보하거나 팀원과 나눠 보세요."})
     for check in strategy.checks:
         if check.item == "시간" and check.status != "ok":
             out.append({"d": "시간이 빠듯해요" if check.status == "warn" else "시간이 부족해요", "s": check.detail})
@@ -407,7 +398,7 @@ def deadline_iso(card: dict) -> str | None:
 def to_response(card: dict, strategy: Strategy, off: Strategy, roadmap: Roadmap, profile: Profile, today: date, *,
                 classes: list[dict], timetable: str, assumed: dict, trust: list[dict],
                 analysis_id: str = "", answers: dict[str, bool] | None = None,
-                picks: dict[str, str] | None = None, spent: dict[date, float] | None = None,
+                spent: dict[date, float] | None = None,
                 planner: str = "code") -> dict:
     """timetable: 'ok'(시간표 반영) / 'failed'(올렸지만 읽지 못함) / 'none'(올리지 않음)."""
     deadline = date.fromisoformat(card["deadline"]) if card.get("deadline") else None
@@ -433,7 +424,7 @@ def to_response(card: dict, strategy: Strategy, off: Strategy, roadmap: Roadmap,
         "compare": compare(strategy, off, profile, assumed, timetable),
         "trust": trust,
         "daily": daily(roadmap, profile, today, classes, deadline, spent),
-        "session": {"id": analysis_id, "questions": questions, "picks": dict(picks or {}),
+        "session": {"id": analysis_id, "questions": questions,
                     "progress": {"hours": round(sum(roadmap.done.values()), 1), "tasks": sorted(roadmap.done)}},
     }
 

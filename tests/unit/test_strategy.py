@@ -165,25 +165,6 @@ def test_missing_skill_gives_substitute_and_says_so():
     assert next(c for c in s.checks if c.item == "필요 역량").status == "warn"
 
 
-def test_student_pick_overrides_recommendation_and_recomputes():
-    base = choose(card(), student(), TODAY)
-    s = choose(card(), student(), TODAY, picks={"기획서": "서식 채우기"})
-    assert picked(s) == ["서식 채우기", "슬라이드+음성"]
-    assert s.choices[0].picked and s.choices[0].recommended == "사례 조사 기획서"
-    assert s.need_hours < base.need_hours
-    # 할 수 없는 방법(역량 부족)을 고르면 무시하고 추천을 쓴다
-    blocked = choose(card(), student(), TODAY, picks={"시연 영상": "촬영+편집"})
-    assert picked(blocked) == picked(base) and not blocked.choices[1].picked
-
-
-def test_picked_heavy_method_is_not_lowered_and_time_says_so():
-    tight = student(skills={"기획": "능숙", "디자인": "가능", "영상": "능숙"}, weekday_hours=0.3, weekend_hours=0.5)
-    s = choose(card(), tight, TODAY, picks={"시연 영상": "촬영+편집"})
-    assert s.choices[1].option["name"] == "촬영+편집"  # 시간이 모자라도 직접 고른 방법은 낮추지 않는다
-    time = next(c for c in s.checks if c.item == "시간")
-    assert time.status == "fail" and "고른 방법대로 하면" in time.detail
-
-
 def test_lowered_method_drops_reasons_of_the_method_it_replaced():
     busy = student(skills={"기획": "입문"}, goal="완성", weekday_hours=0.2, weekend_hours=0.4)  # 완성형은 기획 보완(1.5배)
     s = choose(card(), busy, TODAY)

@@ -117,7 +117,7 @@ async function analyze(fd) {
   } catch (err) { console.warn(err); alert("서버에 연결하지 못했어요. 서버가 켜져 있는지 확인해 주세요."); return null; }
 }
 
-/* 재판정·방법 바꾸기·다시 짜기: 같은 분석을 다시 계산(공고는 다시 읽지 않는다) */
+/* 재판정·다시 짜기: 같은 분석을 다시 계산(공고는 다시 읽지 않는다) */
 async function recompute(path, body, btn) {
   const label = btn.textContent; btn.disabled = true; btn.textContent = "다시 계산하는 중…";
   try {
@@ -151,26 +151,17 @@ $("#result").addEventListener("click", async e => {
   }
   const b = e.target.closest("#rejudge");
   if (b) { const r = await recompute("/api/rejudge", { answers }, b); if (r) { show(r); go("result"); } return; }
-  const p = e.target.closest("[data-pick]");
-  if (p) {  // 다른 방법 고르기: 추천 방법을 누르면 추천으로 되돌린다
-    const s = DATA.strategy[+p.dataset.pick], o = s.options[+p.dataset.opt];
-    if (o.chosen || !o.possible) return;
-    const y = window.scrollY, r = await recompute("/api/pick", { picks: { [s.submission]: o.recommended ? null : o.name } }, p);
-    if (r) { show(r); go("result"); window.scrollTo(0, y); }
-  }
 });
 
-/* 나의 맞춤 전략: 제출물마다 추천 방법과 이유. 다른 방법을 누르면 그 방법으로 다시 계산 */
+/* 나의 맞춤 전략: 제출물마다 고른 방법과 이유 */
 const TIER_BADGE = { "수상 도전형": "met", "완성형": "caution", "완주형": "needs_check" };
 function strategyCard() {
   const S = DATA.strategy || [];
   if (!S.length) return "";
   const who = w => Object.entries(w || {}).map(([k, v]) => `${esc(k)}: ${esc(v)}`).join(" · ");
-  const opts = (s, i) => s.options.length > 1 ? `<div class="chips" style="margin-top:8px">${s.options.map((o, j) =>
-    `<button type="button" class="chip" data-pick="${i}" data-opt="${j}" aria-pressed="${o.chosen}" ${o.possible ? "" : "disabled"} title="${esc(o.how)}">${esc(o.name)} · ${o.tier} · ${o.hours}시간${o.recommended ? " · 추천" : ""}${o.possible ? "" : ` · ${esc(o.why)}`}</button>`).join("")}</div>` : "";
   return `<div class="card" id="strategy"><h3>나의 맞춤 전략</h3>
-    <p class="hint" style="margin:0 0 10px">제출물마다 내 목표·역량·시간에 맞는 방법을 하나씩 추천했어요. 다른 방법을 누르면 그 방법으로 다시 계산해요.</p>
-    ${S.map((s, i) => `<div class="req" style="align-items:start;grid-template-columns:96px 1fr auto">
+    <p class="hint" style="margin:0 0 10px">제출물마다 내 목표·역량·시간에 맞는 방법을 하나씩 골랐어요.</p>
+    ${S.map(s => `<div class="req" style="align-items:start;grid-template-columns:96px 1fr">
       <span class="badge ${s.method ? TIER_BADGE[s.tier] || "caution" : "lacking"}" style="white-space:nowrap;justify-self:start">${s.tier || "어려움"}</span>
       <div><b>${esc(s.submission)}</b> · ${s.method ? `${esc(s.method)} (${s.hours}시간)` : "지금 역량으로는 만들 수 없어요"}
         <small>${esc(s.requirement)}</small>
@@ -178,8 +169,7 @@ function strategyCard() {
         ${s.steps.length ? `<small>순서: ${s.steps.map(x => `${esc(x[0])} ${x[1]}시간`).join(" → ")}</small>` : ""}
         ${s.reasons.length ? `<ul class="plain" style="margin:6px 0 0">${s.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
         ${who(s.who) ? `<small>맡는 사람 · ${who(s.who)}</small>` : ""}
-        ${opts(s, i)}
-      </div>${s.picked ? '<span class="badge src">직접 고름</span>' : "<span></span>"}</div>`).join("")}</div>`;
+      </div></div>`).join("")}</div>`;
 }
 
 /* 결과 */

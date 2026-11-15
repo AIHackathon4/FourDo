@@ -45,12 +45,6 @@ def test_analyze_then_recompute_without_llm(client, monkeypatch):
     today_hours = sum(t[4] for t in replanned["daily"][0]["todos"])  # 오늘 쓴 시간만큼 오늘 할 일이 줄어든다
     assert today_hours == 0
 
-    picked = client.post("/api/pick", json={"id": sid, "picks": {"기획서": "서식 채우기"}}).get_json()
-    assert picked["strategy"][0]["method"] == "서식 채우기" and picked["strategy"][0]["picked"]
-    assert picked["session"]["progress"]["hours"] == 0  # 방법을 바꾸면 그 제출물의 진행 기록은 지운다
-    back = client.post("/api/pick", json={"id": sid, "picks": {"기획서": None}}).get_json()
-    assert back["strategy"][0]["method"] == "사례 조사 기획서" and not back["strategy"][0]["picked"]
-
 
 def test_session_survives_restart_and_bad_ids_are_rejected(client):
     sid = client.post("/api/analyze", data=FORM).get_json()["session"]["id"]

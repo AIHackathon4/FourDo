@@ -59,13 +59,13 @@ def test_to_profile_keeps_only_known_skills_and_mates_only_with_team():
 CLASSES = [{"day": 0, "start": "18:00", "end": "20:00", "name": "자료구조"}]
 
 
-def respond(form, picks=None, classes=CLASSES, progress=None):
+def respond(form, classes=CLASSES, progress=None):
     profile, assumed = adapter.to_profile(form, TODAY, classes)
-    strategy = choose(CARD, profile, TODAY, picks=picks)
+    strategy = choose(CARD, profile, TODAY)
     roadmap = build(strategy, profile, progress)
     return adapter.to_response(CARD, strategy, unpersonalized(CARD, TODAY), roadmap, profile, TODAY,
                                classes=classes or [], timetable="ok" if classes is not None else "none",
-                               assumed=assumed, trust=[{"name": "x"}], analysis_id="abc", picks=picks)
+                               assumed=assumed, trust=[{"name": "x"}], analysis_id="abc")
 
 
 def test_response_has_every_screen_field():
@@ -111,19 +111,8 @@ def test_goal_chips_and_tier_labels():
     assert profile.goal == "수상 도전" and unknown.goal == "완성"
     data = respond(FORM)
     assert {s["tier"] for s in data["strategy"]} <= {"완주형", "완성형", "수상 도전형"}
-    video = data["strategy"][1]
-    assert [o["tier"] for o in video["options"]] == ["완주형", "완성형"]
-    blocked = next(o for o in video["options"] if not o["possible"])
-    assert blocked["name"] == "촬영+편집" and "영상 가능" in blocked["why"]
-    assert sum(o["chosen"] for o in video["options"]) == 1 and sum(o["recommended"] for o in video["options"]) == 1
-
-
-def test_picked_method_is_shown_and_remembered():
-    data = respond(FORM, picks={"기획서": "서식 채우기"})
-    plan = data["strategy"][0]
-    assert plan["method"] == "서식 채우기" and plan["picked"] and plan["tier"] == "완주형"
-    assert next(o for o in plan["options"] if o["recommended"])["name"] == "사례 조사 기획서"
-    assert data["session"]["picks"] == {"기획서": "서식 채우기"}
+    video = data["strategy"][1]  # 영상 역량이 없으면 목표(완성)보다 낮은 방법으로 대신한다
+    assert video["method"] == "슬라이드+음성" and video["substitute"] and "options" not in video
 
 
 def test_daily_runs_from_today_to_deadline_with_notes():

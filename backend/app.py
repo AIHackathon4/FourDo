@@ -8,7 +8,7 @@
   4) 할 일 배치(LLM + 코드 검사, PLAN_MODEL): LLM이 날짜별로 배치하고 코드가 못 쓰는 날·하루 시간·순서·누락을 검사.
      어기면 한 번 고쳐 달라고 하고, 그래도 어기면 코드 배치(roadmap.build). 같은 입력이면 저장해 둔 배치를 다시 쓴다
   5) 시간표 이미지 → 수업 추출(읽기만 하는 LLM, 선택). 읽지 못하면 시간표 없이 진행하고 화면에 그렇다고 알린다
-재판정·방법 바꾸기·다시 짜기·기록 다시 열기는 카드를 다시 쓴다. 할 일이 바뀌면(방법 바꾸기, 다시 짜기) 배치만 LLM을 다시 부른다.
+재판정·다시 짜기·기록 다시 열기는 카드를 다시 쓴다. 할 일이 바뀌면(다시 짜기) 배치만 LLM을 다시 부른다.
 화면 JSON 변환은 adapter.py.
 """
 
@@ -163,7 +163,7 @@ def respond(analysis_id: str, state: dict):
     today = datetime.now(KST).date()
     card = state["card"]
     profile, assumed = adapter.to_profile(state["form"], date.fromisoformat(state["created"]), state["classes"])
-    strategy = choose(card, profile, today, state["answers"] or None, state["picks"] or None)
+    strategy = choose(card, profile, today, state["answers"] or None)
     spent = {date.fromisoformat(day): hours for day, hours in state.get("spent", {}).items()}
     plans = state.setdefault("plans", {})
     known = set(plans)
@@ -175,7 +175,7 @@ def respond(analysis_id: str, state: dict):
     return jsonify(adapter.to_response(
         card, strategy, unpersonalized(card, today), roadmap, profile, today, planner=planner,
         classes=state["classes"] or [], timetable=state["timetable"], assumed=assumed, spent=spent,
-        trust=TRUST, analysis_id=analysis_id, answers=state["answers"], picks=state["picks"]))
+        trust=TRUST, analysis_id=analysis_id, answers=state["answers"]))
 
 
 def json_list(text: str | None) -> list:
@@ -232,7 +232,7 @@ def analyze():
 
     state = {"card": card, "form": form, "created": today.isoformat(), "classes": classes,
              "timetable": "none" if not image else "ok" if classes is not None else "failed",
-             "answers": {}, "picks": {}, "progress": {}, "spent": {}}
+             "answers": {}, "progress": {}, "spent": {}}
     return respond(remember(state), state)
 
 
@@ -258,27 +258,6 @@ def rejudge():
     if error:
         return error
     state["answers"] = {str(q): bool(a) for q, a in (body.get("answers") or {}).items() if a is not None}
-    save(body["id"], state)
-    return respond(body["id"], state)
-
-
-@app.post("/api/pick")
-def pick():
-    """추천과 다른 방법을 고르면 그 방법으로 시간·판정·일정을 다시 계산한다(LLM 없음).
-    picks: {제출물 이름: 방법 이름}. 값이 비어 있으면 그 제출물은 추천으로 되돌린다.
-    방법이 바뀌면 작업 단계가 달라지므로 그 제출물의 진행 기록은 지운다."""
-    body = request.get_json(silent=True) or {}
-    state, error = session_or_error(body.get("id"))
-    if error:
-        return error
-    for submission, name in (body.get("picks") or {}).items():
-        submission = str(submission)
-        if name:
-            state["picks"][submission] = str(name)
-        else:
-            state["picks"].pop(submission, None)
-        prefix = step_key(submission, "")
-        state["progress"] = {key: hours for key, hours in state["progress"].items() if not key.startswith(prefix)}
     save(body["id"], state)
     return respond(body["id"], state)
 

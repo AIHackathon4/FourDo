@@ -5,8 +5,7 @@
 3. 제출물마다 할 수 있는 선택지 걸러내기(본인 또는 팀원의 역량·수준)
 4. 목표로 고르기(완주 → 최소, 완성 → 표준, 수상 도전 → 차별화). 목표 단계를 못 하면 할 수 있는 방법으로 대신한다
 5. 시간이 모자라면 아끼는 시간이 큰 것부터 한 단계씩 낮추기
-6. 학생이 직접 고른 방법(picks)은 그대로 두고, 나머지만 시간에 맞춘다
-7. 판정
+6. 판정
 """
 
 from dataclasses import dataclass, field
@@ -40,8 +39,6 @@ class Choice:
     reasons: list[str]
     target_tier: str | None  # 시간을 생각하지 않았을 때 고를 단계
     feasible: list[dict] = field(default_factory=list)  # 할 수 있는 선택지(낮은 단계부터)
-    recommended: str | None = None  # 엔진이 추천한 방법 이름(학생이 바꿔도 남겨 둔다)
-    picked: bool = False  # 학생이 직접 고른 방법인지
     substitute: bool = False  # 목표 단계 방법에 필요한 역량이 없어 대체 방법을 골랐는지
 
 
@@ -195,7 +192,7 @@ def fit_to_time(choices: list[Choice], capacity: float, profile: Profile) -> Non
     while sum(c.hours for c in choices) > capacity:
         best, best_saving = None, 0.0
         for choice in choices:
-            if not choice.option or choice.picked:
+            if not choice.option:
                 continue
             current = TIERS.index(choice.option["tier"])
             lower = [o for o in choice.feasible if TIERS.index(o["tier"]) < current]
@@ -248,54 +245,24 @@ def plan_days(card: dict, profile: Profile, today: date) -> tuple[list[date], li
     return days[: len(days) - buffer], days[len(days) - buffer:], (deadline - today).days
 
 
-def apply_pick(choice: Choice, sub: dict, name: str, profile: Profile) -> None:
-    """학생이 고른 방법으로 바꾼다. 역량이 모자라 할 수 없는 방법이면 무시한다."""
-    option = next((o for o in sub["options"] if o["name"] == name), None)
-    if option is None or option is choice.option:
-        return
-    ok, who, _ = can_do(option, profile)
-    if not ok:
-        return
-    choice.option, choice.who, choice.hours, choice.picked = option, who, option_hours(option, profile), True
-    choice.substitute = False
-    choice.reasons = ["직접 고른 방법이에요." + (f" 추천은 '{choice.recommended}'였어요" if choice.recommended else "")]
-    choice.reasons += method_notes(option, who)
-
-
-def select(card: dict, profile: Profile, capacity: float, open_: bool, picks: dict[str, str] | None) -> list[Choice]:
-    """추천(목표·역량 → 시간 맞추기)을 먼저 구하고, 학생이 고른 방법이 있으면 그것을 고정한 채 나머지만 다시 맞춘다."""
-    recommended = [initial_choice(sub, profile) for sub in card["submissions"]]
+def select(card: dict, profile: Profile, capacity: float, open_: bool) -> list[Choice]:
+    """목표·역량으로 제출물마다 방법을 하나 고르고, 시간이 모자라면 한 단계씩 낮춘다."""
+    choices = [initial_choice(sub, profile) for sub in card["submissions"]]
     if open_:
-        fit_to_time(recommended, capacity, profile)
-    names = {c.submission: c.option["name"] if c.option else None for c in recommended}
-    picks = {k: v for k, v in (picks or {}).items() if v and v != names.get(k)}
-    if not picks:
-        choices = recommended
-    else:
-        choices = [initial_choice(sub, profile) for sub in card["submissions"]]
-        for choice, sub in zip(choices, card["submissions"]):
-            choice.recommended = names[choice.submission]
-            if sub["name"] in picks:
-                apply_pick(choice, sub, picks[sub["name"]], profile)
-        if open_:
-            fit_to_time(choices, capacity, profile)
-    for choice in choices:
-        choice.recommended = names[choice.submission]
+        fit_to_time(choices, capacity, profile)
     return choices
 
 
-def choose(card: dict, profile: Profile, today: date, answers: dict[str, bool] | None = None,
-           picks: dict[str, str] | None = None) -> Strategy:
-    """picks: 제출물 이름 → 학생이 직접 고른 방법 이름(추천을 바꾼 경우)."""
+def choose(card: dict, profile: Profile, today: date, answers: dict[str, bool] | None = None) -> Strategy:
     work, buffer, days_left = plan_days(card, profile, today)
     capacity = round(sum(profile.hours_on(d) for d in work), 1)
     final = round(FINAL_BASE_HOURS + FORM_HOURS * len(card["forms"]), 1)
 
     # 마감이 지났으면 범위를 줄이지 않는다(의미가 없다)
     open_ = days_left is not None and days_left >= 0
-    choices = select(card, profile, capacity, open_, picks)
+    choices = select(card, profile, capacity, open_)
     initial = [initial_choice(sub, profile) for sub in card["submissions"]]  # 시간을 생각하지 않았을 때
-    wanted = sum(c.hours if c.picked else i.hours for c, i in zip(choices, initial))
+    wanted = sum(i.hours for i in initial)
     need = round(sum(c.hours for c in choices) + final, 1)
 
     eligibility, questions = eligibility_check(as_notice(card, profile), profile, answers)
@@ -320,8 +287,7 @@ def time_check(choices: list[Choice], wanted: float, capacity: float, days_left:
         return Check("시간", "fail", "마감까지 작업할 수 있는 날이 없어요.")
     numbers = f"{used:g}시간이 필요하고 {capacity:g}시간을 쓸 수 있어요."
     if used > capacity:
-        how = "고른 방법대로 하면" if any(c.picked for c in choices) else "가장 가벼운 방법으로도"
-        return Check("시간", "fail", f"{how} {used:g}시간이 필요한데 쓸 수 있는 시간은 {capacity:g}시간이에요. "
+        return Check("시간", "fail", f"가장 가벼운 방법으로도 {used:g}시간이 필요한데 쓸 수 있는 시간은 {capacity:g}시간이에요. "
                                     f"{hours_needed(used, capacity, profile)}은 써야 낼 수 있어요.")
     if used < wanted:
         return Check("시간", "warn", f"목표대로 하면 {wanted:g}시간이 필요한데 쓸 수 있는 시간이 {capacity:g}시간이라, "
