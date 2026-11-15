@@ -7,21 +7,23 @@
 import re
 from datetime import date, datetime, timedelta
 
-from aihack4.card import SKILLS, TIERS
-from aihack4.feasibility import GOALS, LEVELS, STATUSES, Period, Profile
+from aihack4.card import SKILLS
+from aihack4.feasibility import LEVELS, STATUSES, Period, Profile
 from aihack4.roadmap import FINAL_NAME, Roadmap, step_key, weeks
-from aihack4.strategy import Choice, Strategy, can_do, option_hours, stretched
+from aihack4.strategy import (DEFAULT_GOAL, GOAL_TIER, TIER_LABEL, Choice, Strategy, can_do, josa, option_hours,
+                              quoted, stretched)
 
 DAYS = "월화수목금토일"
 DEFAULT_LEVEL = "가능"  # 수준 없이 이름만 온 경우
 WEEKEND_RATIO = 2  # 주당 시간 → 평일·주말 하루 시간. 주말 하루 = 평일 하루의 2배(가정)
+MAX_DAILY = 180  # 하루별 할 일을 보여 주는 최대 일수
 
 STATUS_TO_FRONT = {"ok": "met", "warn": "caution", "fail": "lacking"}
 READINESS = {
-    "참여 가능": "참여 가능 · 지금 시작해도 충분해요",
-    "준비하면 가능": "준비하면 가능 · 아래 전략대로 하면 낼 수 있어요",
-    "확인 필요": "확인 필요 · 참가 조건부터 확인해요",
-    "어려움": "어려움 · 이번 회차는 쉽지 않아요",
+    "참여 가능": "지금 시작하면 여유 있게 제출할 수 있어요.",
+    "준비하면 가능": "아래 방법대로 준비하면 제출할 수 있어요.",
+    "확인 필요": "참가 조건부터 확인해 주세요.",
+    "어려움": "이번에는 제출까지 가기 어려워요.",
 }
 
 
@@ -116,8 +118,9 @@ def parse_age(text) -> int | None:
     return age if 10 <= age <= 80 else None
 
 
-def to_profile(form: dict, today: date) -> tuple[Profile, dict]:
-    """프론트 폼 → 엔진 프로필. 두 번째 값은 화면 메모에 쓰는 원래 입력."""
+def to_profile(form: dict, today: date, classes: list[dict] | None = None) -> tuple[Profile, dict]:
+    """프론트 폼 → 엔진 프로필. 두 번째 값은 화면 메모에 쓰는 원래 입력.
+    classes(시간표에서 읽은 수업)가 있으면 요일별로 수업을 뺀 빈 시간을 작업 시간의 상한으로 둔다."""
     grade, major = parse_grade_major(form.get("major", ""))
     weekly = float(form.get("hours") or 12)
     weekday = round(weekly / (5 + 2 * WEEKEND_RATIO), 2)
@@ -129,10 +132,11 @@ def to_profile(form: dict, today: date) -> tuple[Profile, dict]:
         grade=grade, school=(form.get("school") or "").strip(), major=major,
         region=(form.get("region") or "").strip(), age=parse_age(form.get("age")),
         skills=parse_skills(form.get("skills")), experience=parse_experience(exp_text), portfolio=exp_text,
-        goal=form.get("goal") if form.get("goal") in GOALS else "경험 쌓기",
+        goal=form.get("goal") if form.get("goal") in GOAL_TIER else DEFAULT_GOAL,
         team=team, team_size=size,
         teammate_skills=[s for s in form.get("mate_skills") or [] if s in SKILLS] if team == "팀 있음" else [],
         weekday_hours=weekday, weekend_hours=round(weekday * WEEKEND_RATIO, 2), blocked=blocked, note=busy_note,
+        daily_cap=timetable_caps(classes) if classes is not None else {},
     )
     return profile, {"weekly": weekly, "busy_note": busy_note}
 
@@ -178,41 +182,87 @@ def _free_slots(day: date, classes: list[dict]) -> list[tuple[int, int]]:
 
 
 def place(day: date, items: list[tuple[str, float, str]], classes: list[dict]) -> list[list]:
-    """(할 일, 시간, 단계 키) → [시간대, 할 일, 시간, 단계 키]. 들어갈 자리가 없으면 '시간 미정'."""
+    """(할 일, 시간, 단계 키) → [시간대, 할 일, 화면에 보일 시간, 단계 키, 실제 시간].
+    빈 시간 하나에 다 안 들어가면 여러 빈 시간에 나눠 넣고, 그래도 남으면 '시간 미정'."""
     todos, slots = [], _free_slots(day, classes)
     for name, hours, key in items:
         need = int(half(hours) * 60)
-        for index, (start, end) in enumerate(slots):
-            if end - start >= need:
-                todos.append([f"{_clock(start)}–{_clock(start + need)}", name, need / 60, key, hours])
-                slots[index] = (start + need, end)
-                break
+        whole = next((i for i, (start, end) in enumerate(slots) if end - start >= need), None)
+        parts = []  # (빈 시간 번호, 분)
+        if whole is not None:
+            parts.append((whole, need))
         else:
-            todos.append(["시간 미정", name, need / 60, key, hours])
+            left = need
+            for i, (start, end) in enumerate(slots):
+                if left <= 0:
+                    break
+                if end - start >= 30:
+                    parts.append((i, min(left, end - start)))
+                    left -= parts[-1][1]
+        placed = 0
+        for i, minutes in parts:
+            start, end = slots[i]
+            todos.append([f"{_clock(start)}–{_clock(start + minutes)}", name, minutes / 60, key,
+                          round(hours * minutes / need, 2)])
+            slots[i] = (start + minutes, end)
+            placed += minutes
+        if placed < need:
+            todos.append(["시간 미정", name, (need - placed) / 60, key, round(hours * (need - placed) / need, 2)])
     return todos
 
 
-def classes_on(day: date, classes: list[dict]) -> list[dict]:
-    return sorted((c for c in classes if DAY_KEYS.get(c.get("day")) == day.weekday()
-                   and CLOCK.match(str(c.get("start", ""))) and CLOCK.match(str(c.get("end", "")))),
-                  key=lambda c: _minutes(c["start"]))
-
-
-def daily(roadmap: Roadmap, profile: Profile, today: date, classes: list[dict], has_timetable: bool) -> list[dict]:
-    by_date = {d.date: d for d in roadmap.days}
+def clean_classes(classes) -> list[dict]:
+    """시간표에서 읽은 수업 중 요일·시각이 온전한 것만 남긴다."""
     out = []
-    for offset in range(7):
+    for c in classes or []:
+        if not isinstance(c, dict):
+            continue
+        day = DAY_KEYS.get(c.get("day")) if isinstance(c.get("day"), (int, str)) else None
+        start, end = str(c.get("start", "")), str(c.get("end", ""))
+        if day is not None and CLOCK.match(start) and CLOCK.match(end) and _minutes(start) < _minutes(end):
+            out.append({"day": day, "start": start, "end": end, "name": str(c.get("name") or "수업")})
+    return out
+
+
+def classes_on(day: date, classes: list[dict]) -> list[dict]:
+    return sorted((c for c in clean_classes(classes) if c["day"] == day.weekday()), key=lambda c: _minutes(c["start"]))
+
+
+def timetable_caps(classes: list[dict]) -> dict[int, float]:
+    """요일(월=0)별로 수업을 뺀 빈 시간. 하루 작업 시간은 이 값을 넘지 않는다."""
+    monday = date(2026, 1, 5)
+    return {n: round(sum(end - start for start, end in
+                         _free_slots(monday + timedelta(days=n), classes_on(monday + timedelta(days=n), classes))) / 60, 1)
+            for n in range(7)}
+
+
+def daily(roadmap: Roadmap, profile: Profile, today: date, classes: list[dict], deadline: date | None,
+          spent: dict[date, float] | None = None) -> list[dict]:
+    """오늘부터 마감일까지 하루씩. 마감을 모르거나 지났으면 7일. spent: 날짜별로 이미 작업한 시간."""
+    spent = spent or {}
+    by_date = {d.date: d for d in roadmap.days}
+    goals: dict[date, list[str]] = {}
+    for name, when in roadmap.milestones:
+        goals.setdefault(when, []).append(name)
+    last = deadline if deadline and deadline >= today else today + timedelta(days=6)
+    out = []
+    for offset in range(min((last - today).days + 1, MAX_DAILY)):
         day = today + timedelta(days=offset)
         blocked = [p.reason for p in profile.blocked if p.start <= day <= p.end]
         cls = classes_on(day, classes)
-        busy = sum(_minutes(c["end"]) - _minutes(c["start"]) for c in cls) / 60
         plan = by_date.get(day)
         items = [(i.step, i.hours, step_key(i.submission, i.step)) for i in plan.items] if plan else []
+        notes = [f"★ {name} 완성 목표일" for name in goals.get(day, [])]
+        if plan and plan.buffer:
+            notes.append("마감 전 여유 기간")
+        if day == deadline:
+            notes.append("마감일")
         out.append({
             "d": DAYS[day.weekday()], "date": f"{day.month}/{day.day}",
-            "free": 0 if blocked else (max(0, round(12 - busy)) if has_timetable else 12),
-            "classes": [[f"{c['start']}–{c['end']}", c.get("name", "수업")] for c in cls] + [["종일", r] for r in blocked],
-            "todos": place(day, items, cls),
+            "free": 0 if blocked else round(max(0.0, profile.hours_on(day) - spent.get(day, 0.0)), 1),
+            "done": round(spent.get(day, 0.0), 1),
+            "classes": [[f"{c['start']}–{c['end']}", c["name"]] for c in cls] + [["종일", r] for r in blocked],
+            "todos": place(day, items, cls), "note": " · ".join(notes),
         })
     return out
 
@@ -225,41 +275,36 @@ def requirements(strategy: Strategy) -> list[dict]:
         status = STATUS_TO_FRONT[check.status]
         if check.item in ("참가 자격", "팀 구성") and check.status == "warn":
             status = "needs_check"
-        items.append({"label": check.item, "criterion": check.detail, "status": status, "source": "code"})
+        items.append({"label": check.item, "criterion": check.detail, "status": status})
     for note in strategy.notes:
-        items.append({"label": "한 번 확인할 조건", "criterion": f"대부분 충족하는 조건이에요: {note}",
-                      "status": "needs_check", "source": "ai"})
+        items.append({"label": "확인할 조건", "criterion": f"대부분 해당하는 조건이에요: {note}", "status": "needs_check"})
     return items
 
 
-def lower_option(choice: Choice, profile: Profile) -> tuple[dict, float] | None:
-    """한 단계 낮은 방법과 줄어드는 시간."""
-    if not choice.option:
-        return None
-    lower = [o for o in choice.feasible if TIERS.index(o["tier"]) < TIERS.index(choice.option["tier"])]
-    if not lower:
-        return None
-    option = min(lower, key=lambda o: (-TIERS.index(o["tier"]), option_hours(o, profile)))
-    return option, round(choice.hours - option_hours(option, profile), 1)
-
-
 def strategy_view(choice: Choice, profile: Profile, card: dict) -> dict:
+    """제출물 하나의 추천·선택 방법과, 학생이 바꿔 고를 수 있는 모든 방법(할 수 없는 것은 이유와 함께)."""
     sub = next((s for s in card["submissions"] if s["name"] == choice.submission), {"options": []})
-    alternatives = []
+    options = []
     for option in sub["options"]:
-        if choice.option and option is choice.option:
-            continue
         ok, _, missing = can_do(option, profile)
-        alternatives.append({"name": option["name"], "tier": option["tier"], "hours": option_hours(option, profile),
-                             "possible": ok, "why": "" if ok else f"{', '.join(missing)} 필요"})
+        options.append({"name": option["name"], "tier": TIER_LABEL[option["tier"]], "how": option["how"],
+                        "hours": option_hours(option, profile), "possible": ok,
+                        "why": "" if ok else f"{', '.join(missing)} 필요",
+                        "chosen": option is choice.option, "recommended": option["name"] == choice.recommended})
+    picked = choice.option
+    scale = choice.hours / picked["hours"] if picked and picked["hours"] else 1.0  # 단계 시간도 보정한 시간으로 보여 준다
+    # 누가 맡는지는 팀일 때만 보여 준다. '보완'은 익히면서 한다는 뜻
+    who = {skill: person.replace(" 보완", "(익히면서)") for skill, person in choice.who.items()} \
+        if profile.team == "팀 있음" else {}
     return {
         "submission": choice.submission, "requirement": choice.requirement,
-        "method": choice.option["name"] if choice.option else None,
-        "tier": choice.option["tier"] if choice.option else None,
-        "how": choice.option["how"] if choice.option else "",
+        "method": picked["name"] if picked else None,
+        "tier": TIER_LABEL[picked["tier"]] if picked else None,
+        "how": picked["how"] if picked else "",
         "hours": choice.hours,
-        "steps": [[s["name"], s["hours"]] for s in choice.option["steps"]] if choice.option else [],
-        "who": choice.who, "reasons": choice.reasons, "alternatives": alternatives,
+        "steps": [[s["name"], round(s["hours"] * scale, 1)] for s in picked["steps"]] if picked else [],
+        "who": who, "reasons": choice.reasons, "picked": choice.picked, "substitute": choice.substitute,
+        "options": options,
     }
 
 
@@ -267,11 +312,11 @@ def blockers(strategy: Strategy, profile: Profile) -> list[dict]:
     out = []
     for choice in strategy.choices:
         if not choice.option:
-            out.append({"d": f"{choice.submission}을(를) 만들 역량이 없어요",
-                        "s": " / ".join(choice.reasons[:2]) + " → 이 역량을 가진 팀원을 구하면 할 수 있어요"})
+            out.append({"d": f"{josa(choice.submission, '을를')} 만들 역량이 부족해요",
+                        "s": f"{choice.reasons[0]}. 이 역량이 있는 팀원과 함께하면 할 수 있어요."})
         elif stretched(choice.who):
-            out.append({"d": f"{', '.join(stretched(choice.who))} 역량이 한 단계 모자라요 ({choice.submission})",
-                        "s": "익히며 하도록 시간을 1.5배로 잡았어요. 막히면 한 단계 낮은 방법으로 바꿔도 돼요."})
+            out.append({"d": f"{choice.submission}에 필요한 {', '.join(stretched(choice.who))} 역량이 조금 모자라요",
+                        "s": "익히는 시간까지 넉넉히 잡았어요. 부담되면 '나의 맞춤 전략'에서 다른 방법을 골라 보세요."})
     for check in strategy.checks:
         if check.item == "시간" and check.status != "ok":
             out.append({"d": "시간이 빠듯해요" if check.status == "warn" else "시간이 부족해요", "s": check.detail})
@@ -279,70 +324,74 @@ def blockers(strategy: Strategy, profile: Profile) -> list[dict]:
             out.append({"d": "팀 구성을 확인해야 해요", "s": check.detail})
     for question in strategy.questions:
         out.append({"d": "참가 자격을 확인해야 해요", "s": question})
-    return out or [{"d": "크게 막는 요소가 없어요", "s": "계획대로 진행하고, 밀리면 하루별 할 일에서 체크한 뒤 다시 짜기를 눌러요."}]
+    return out or [{"d": "크게 막는 요소가 없어요", "s": "계획대로 진행하면 돼요. 끝낸 일을 체크하면 남은 일정을 다시 짜 드려요."}]
 
 
-def fallbacks(strategy: Strategy, profile: Profile) -> list[str]:
-    out = []
-    for choice in strategy.choices:
-        lower = lower_option(choice, profile)
-        if lower and lower[1] > 0:
-            out.append(f"{choice.submission}을(를) '{lower[0]['name']}'로 낮추면 {lower[1]:g}시간 줄어요")
-    if strategy.buffer_days:
-        out.append(f"마감 전 {len(strategy.buffer_days)}일은 여유 기간으로 비워 뒀어요. 밀린 일은 여기서 만회해요")
-    return out or ["지금 계획이 가장 가벼운 방법이에요"]
-
-
-def this_week(roadmap: Roadmap, today: date) -> dict:
-    totals: dict[str, float] = {}
-    for day in roadmap.days:
-        if today <= day.date < today + timedelta(days=7):
-            for item in day.items:
-                totals[item.step] = totals.get(item.step, 0.0) + item.hours
-    hours = sum(totals.values())
+def today_card(roadmap: Roadmap, today: date) -> dict:
+    """오늘(오늘 할 일이 없으면 다음 작업일)에 할 일."""
     upcoming = [(name, when) for name, when in roadmap.milestones if when >= today]
     goal = f"다음 중간 목표: {upcoming[0][1].month}/{upcoming[0][1].day}까지 {upcoming[0][0]} 완성" if upcoming else ""
-    title = " → ".join(totals) if totals else "이번 주는 쉬어가요"
-    return {"title": title, "hours": half(hours) if hours else 0, "note": goal or "마감 전 여유 기간이에요"}
+    day = next((d for d in roadmap.days if d.date >= today and d.items), None)
+    if day is None:
+        return {"when": "오늘", "title": "남은 작업이 없어요", "hours": 0, "note": goal}
+    when = "오늘" if day.date == today else f"다음 작업일 {day.date.month}/{day.date.day}({DAYS[day.date.weekday()]})"
+    steps = list(dict.fromkeys(i.step for i in day.items))
+    return {"when": when, "title": " → ".join(steps), "hours": half(day.hours), "note": goal}
 
 
-def week_plan(roadmap: Roadmap, today: date) -> list[dict]:
+def week_plan(roadmap: Roadmap, today: date, profile: Profile) -> list[dict]:
+    """주차별 작업. 이름은 날짜 범위. 작업이 없는 주는 이유(시험 등)를 붙이고, 중간 목표는 goal에 따로 적는다."""
     out = []
     for number, week in enumerate(weeks(roadmap, today), 1):
         tasks = [[name, round(hours, 1)] for name, hours in week["tasks"].items()]
-        if week["milestones"]:
-            label = f"★ {', '.join(week['milestones'])} 완성"
-        elif tasks:
-            label = " · ".join(name for name, _ in tasks[:2])
-        else:
-            label = "여유 기간" if week["buffer"] else "못 쓰는 기간"
-        out.append({"w": number, "label": label, "rest": not tasks, "tasks": tasks})
+        label = f"{week['start'].month}/{week['start'].day}~{week['end'].month}/{week['end'].day}"
+        if not tasks:
+            busy = list(dict.fromkeys(p.reason for p in profile.blocked if p.start <= week["end"] and p.end >= week["start"]))
+            label += f" · {', '.join(busy)}" if busy else ""
+        goal = f"★ {', '.join(week['milestones'])} 완성" if week["milestones"] else ""
+        out.append({"w": number, "label": label, "rest": not tasks, "tasks": tasks, "goal": goal})
     return out
 
 
-def compare(on: Strategy, off: Strategy, profile: Profile, assumed: dict) -> dict:
-    """같은 공고 카드, 같은 엔진. 다른 건 프로필(개인화)뿐이다. 차이는 코드가 찾는다."""
-    generic = [f"{c.submission}: {c.option['name']} ({c.hours:g}h)" for c in off.choices if c.option]
+def compare(on: Strategy, off: Strategy, profile: Profile, assumed: dict, timetable: str) -> dict:
+    """같은 공고 카드, 같은 계산. 다른 건 프로필(개인화)뿐이다. 양쪽을 같은 항목(방법·시간·일정)으로 보여 주고 차이는 코드가 찾는다."""
+    methods = lambda s: " / ".join(f"{c.submission}: {c.option['name']}" if c.option  # noqa: E731
+                                   else f"{c.submission}: 할 수 있는 방법 없음" for c in s.choices) or "제출물 없음"
+    days = f"마감까지 {off.days_left}일 동안" if off.days_left is not None and off.days_left >= 0 else "남은 기간에"
+    work = lambda s: round(sum(c.hours for c in s.choices), 1)  # noqa: E731  결과 화면의 '시간'과 같은 기준(제출물 작업 시간)
+    generic = [["방법", methods(off)],
+               ["시간", f"{work(off):g}시간 필요 (내가 쓸 수 있는 시간은 모름)"],
+               ["일정", f"{days} 고르게 (시험·수업 일정은 모름)"]]
     problems = []
     for c in off.choices:
         if c.option:
             ok, _, missing = can_do(c.option, profile)
             if not ok:
-                problems.append(f"'{c.option['name']}'은 {', '.join(missing)}이 필요해 나는 못 해요")
-    if off.need_hours > on.work_capacity > 0:
-        problems.append(f"{off.need_hours:g}시간이 필요한데 내 시간은 {on.work_capacity:g}시간이에요")
+                problems.append(f"{quoted(c.option['name'], '은는')} {', '.join(missing)} 수준이 필요해서 지금은 하기 어려워요")
+    if work(off) > on.work_capacity > 0:
+        problems.append(f"{work(off):g}시간이 필요한데 내가 쓸 수 있는 시간은 {on.work_capacity:g}시간이에요")
     blocked = [p for p in profile.blocked if on.work_days and p.start <= on.work_days[-1]]
     if blocked:
-        problems.append(f"{', '.join(p.reason for p in blocked)} 기간을 모르고 짠 계획이에요")
-    mine = [[c.submission, f"{c.option['name']} ({c.hours:g}h)" if c.option else "할 수 없음 → 팀원 필요"]
-            for c in on.choices]
+        problems.append(f"{', '.join(p.reason for p in blocked)} 기간을 피하지 않아요")
+    same = [c.option["name"] if c.option else None for c in on.choices] == \
+           [c.option["name"] if c.option else None for c in off.choices]
+    schedule = [f"작업일 {len(on.work_days)}일"] if on.work_days else ["작업할 수 있는 날 없음"]
+    schedule += [f"{p.reason} 기간 비움" for p in blocked]
+    if timetable == "ok":
+        schedule.append("수업 시간 피함")
+    if on.buffer_days:
+        schedule.append(f"마감 전 {len(on.buffer_days)}일 여유")
+    mine = [["방법", methods(on)],
+            ["시간", f"{work(on):g}시간 필요 / {on.work_capacity:g}시간 쓸 수 있음"],
+            ["일정", " · ".join(schedule)],
+            ["결과", on.verdict]]
     skills = ", ".join(f"{k} {v}" for k, v in profile.skills.items()) or "역량 선택 없음"
     team = f"팀 {profile.team_size}명" + (f"(팀원 {', '.join(profile.teammate_skills)})" if profile.teammate_skills else "") \
         if profile.team == "팀 있음" else "혼자"
-    return {"generic": generic or ["제출물 없음"],
-            "genericNote": "내 기준으로 보면: " + "; ".join(problems) if problems else "이 공고는 내 프로필과 크게 부딪히지 않아요",
-            "mine": mine,
-            "mineNote": f"주 {assumed['weekly']:g}시간 · {skills} · {team} · {profile.goal} 반영 (코드 계산)"}
+    note = "내 상황과 맞지 않는 점: " + " / ".join(problems) if problems else \
+        "방법은 같지만, 시간과 일정은 내 상황에 맞춰 달라졌어요" if same else "내 상황과 크게 부딪히는 점은 없어요"
+    return {"generic": generic, "genericNote": note, "mine": mine,
+            "mineNote": f"반영한 내 정보: 주 {assumed['weekly']:g}시간 · {skills} · {team} · 목표 {profile.goal}"}
 
 
 def deadline_iso(card: dict) -> str | None:
@@ -356,31 +405,35 @@ def deadline_iso(card: dict) -> str | None:
 
 
 def to_response(card: dict, strategy: Strategy, off: Strategy, roadmap: Roadmap, profile: Profile, today: date, *,
-                classes: list[dict], has_timetable: bool, assumed: dict, trust: list[dict],
-                analysis_id: str = "", answers: dict[str, bool] | None = None) -> dict:
-    lightest = sum(min((option_hours(o, profile) for o in c.feasible), default=0) for c in strategy.choices)
-    reasons = [c.detail for c in strategy.checks if c.status != "ok"][:3] or ["모든 조건을 충족해요"]
+                classes: list[dict], timetable: str, assumed: dict, trust: list[dict],
+                analysis_id: str = "", answers: dict[str, bool] | None = None,
+                picks: dict[str, str] | None = None, spent: dict[date, float] | None = None,
+                planner: str = "code") -> dict:
+    """timetable: 'ok'(시간표 반영) / 'failed'(올렸지만 읽지 못함) / 'none'(올리지 않음)."""
+    deadline = date.fromisoformat(card["deadline"]) if card.get("deadline") else None
+    reasons = [c.detail for c in strategy.checks if c.status != "ok"][:3] or ["참가 조건, 시간, 역량 모두 문제없어요."]
     questions = [{"q": q, "answer": None} for q in strategy.questions]
     questions += [{"q": q, "answer": a} for q, a in (answers or {}).items() if q not in strategy.questions]
     return {
-        "meta": {"is_demo": False, "timetable": has_timetable, "engine": "v3", "verdict": strategy.verdict,
-                 "issues": card.get("issues", [])},
+        "meta": {"timetable": timetable, "engine": "v3", "planner": planner, "verdict": strategy.verdict, "issues": card.get("issues", []),
+                 "team": profile.people()},
         "posting": {"title": card.get("title") or "제목 없는 공고", "organizer": card.get("organizer") or "주최 미상",
                     "deadline": deadline_iso(card)},
         "requirements": requirements(strategy),
-        "readiness": {"label": READINESS[strategy.verdict], "reasons": reasons, "disclaimer": "준비도는 합격 확률이 아니에요."},
-        "time": {"min": round(lightest + strategy.final_hours), "max": round(strategy.need_hours),
-                 "available": round(strategy.work_capacity)},
+        "readiness": {"label": strategy.verdict, "summary": READINESS[strategy.verdict], "reasons": reasons,
+                      "disclaimer": "준비도는 합격 확률이 아니에요."},
+        # 제출물 작업 시간과 여유 기간 전까지 쓸 수 있는 시간('시간' 판정과 같은 숫자). 최종 점검·제출은 여유 기간에 따로 한다
+        "time": {"need": round(sum(c.hours for c in strategy.choices), 1), "available": round(strategy.work_capacity, 1)},
         "strategy": [strategy_view(c, profile, card) for c in strategy.choices],
         "criteria": card.get("criteria", []),
-        "thisWeek": this_week(roadmap, today),
+        "today": {"when": "오늘", "title": "이미 마감된 공고예요", "hours": 0, "note": ""}
+        if strategy.days_left is not None and strategy.days_left < 0 else today_card(roadmap, today),
         "blockers": blockers(strategy, profile),
-        "weeks": week_plan(roadmap, today),
-        "fallbacks": fallbacks(strategy, profile),
-        "compare": compare(strategy, off, profile, assumed),
+        "weeks": week_plan(roadmap, today, profile),
+        "compare": compare(strategy, off, profile, assumed, timetable),
         "trust": trust,
-        "daily": daily(roadmap, profile, today, classes, has_timetable),
-        "session": {"id": analysis_id, "questions": questions,
+        "daily": daily(roadmap, profile, today, classes, deadline, spent),
+        "session": {"id": analysis_id, "questions": questions, "picks": dict(picks or {}),
                     "progress": {"hours": round(sum(roadmap.done.values()), 1), "tasks": sorted(roadmap.done)}},
     }
 

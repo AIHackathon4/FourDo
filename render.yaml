@@ -1,0 +1,22 @@
+# Render Blueprint: 저장소를 연결하면 이 파일대로 서비스가 만들어진다.
+services:
+  - type: web
+    name: fourdo
+    runtime: python
+    plan: free
+    branch: feature/v3-final
+    buildCommand: pip install -r requirements-render.txt
+    # 공고 분석에 최대 1분쯤 걸리므로 timeout을 넉넉히 둔다
+    startCommand: gunicorn --chdir backend app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 180
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: OPENAI_API_KEY
+        sync: false      # Render 대시보드에서 직접 입력(코드에 넣지 않는다)
+      - key: OPENAI_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: LLM_MODEL
+        value: anthropic/claude-haiku-5.5
+      - key: CARD_MODEL
+        value: anthropic/claude-haiku-5.5

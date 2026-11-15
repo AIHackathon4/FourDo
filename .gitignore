@@ -23,3 +23,5 @@ data/contests/
 .streamlit/secrets.toml
 # 공고 카드 캐시(공고 원문에서 만든 것)
 backend/.card_cache/
+# 분석 기록(입력한 프로필이 들어 있음)
+backend/.sessions/

@@ -2,10 +2,12 @@
 
 - 제출물은 공고 카드 순서대로, 각 제출물은 고른 방법의 단계 순서대로 한다.
 - 고르게: 필요한 시간을 여유 기간 전 작업일에 같은 비율로 나눈다(적어 낸 시간을 매일 꽉 채우지 않는다).
+  몫이 모일 때까지 기다리지 않고 앞당겨 하므로 첫 작업일부터 할 일이 있다.
 - 한 번 작업은 최소 1시간(하루에 쓸 수 있는 시간이 1시간보다 적으면 그 시간). 못 쓰는 날은 이미 작업일에서 빠져 있다.
 - 마감 전 여유 기간에는 서류 작성·최종 점검·제출만 한다.
 - 제출물이 끝나는 날이 중간 목표다.
 - progress(이미 한 시간)를 주면 그만큼 빼고 남은 일만 다시 놓는다.
+- spent(날짜별로 이미 작업한 시간)를 주면 그날 쓸 수 있는 시간에서 뺀다(오늘 할 일을 끝냈는데 오늘 또 잡히지 않게).
 """
 
 from dataclasses import dataclass, field
@@ -65,29 +67,35 @@ def queue(strategy: Strategy, progress: dict[str, float] | None) -> list[Item]:
     return items
 
 
-def build(strategy: Strategy, profile: Profile, progress: dict[str, float] | None = None) -> Roadmap:
-    work = [Day(d, round(profile.hours_on(d), 2)) for d in strategy.work_days]
-    buffer = [Day(d, round(profile.hours_on(d), 2), buffer=True) for d in strategy.buffer_days]
+def build(strategy: Strategy, profile: Profile, progress: dict[str, float] | None = None,
+          spent: dict[date, float] | None = None) -> Roadmap:
+    spent = spent or {}
+
+    def left(day: date) -> float:
+        """그날 남은 시간. 이미 작업한 날에 남은 시간이 최소 작업 시간보다 적으면 더 넣지 않는다."""
+        hours = profile.hours_on(day) - spent.get(day, 0.0)
+        return 0.0 if spent.get(day) and hours < MIN_SESSION else round(max(0.0, hours), 2)
+
+    work = [Day(d, left(d)) for d in strategy.work_days]
+    buffer = [Day(d, left(d), buffer=True) for d in strategy.buffer_days]
     todo = queue(strategy, progress)
     need = sum(i.hours for i in todo)
     capacity = sum(d.capacity for d in work)
     pace = min(1.0, need / capacity) if capacity else 1.0
 
-    # 하루 몫(그날 시간 × pace)을 쌓아 두었다가, 최소 작업 시간 이상 모이면 그날 쓴다.
+    # 하루 몫(그날 시간 × pace)을 쌓아 가며, 몫이 생긴 날에 최소 작업 시간 이상을 한 번에 한다.
+    # 모일 때까지 기다리지 않고 앞당겨 하므로(carry가 음수가 될 수 있다) 첫 작업일부터 할 일이 있고, 진도는 늘 고른 속도보다 앞선다.
     budgets, carry = [], 0.0
     for index, day in enumerate(work):
         carry += day.capacity * pace
         remaining = need - sum(budgets)
-        floor = min(MIN_SESSION, day.capacity, remaining)
-        amount = min(day.capacity, carry)
+        floor = min(MIN_SESSION, day.capacity)
+        amount = min(day.capacity, max(carry, floor), remaining) if carry > 1e-9 else 0.0
         if index == len(work) - 1:  # 마지막 작업일: 남은 몫을 그날 시간까지 다 쓴다
             amount = min(day.capacity, remaining)
-        amount = min(amount, remaining)
-        if amount + 1e-9 >= floor and amount > 0:
-            budgets.append(amount)
-            carry -= amount
-        else:
-            budgets.append(0.0)
+        amount = max(0.0, amount)
+        budgets.append(amount)
+        carry -= amount
     overflow = round(need - sum(budgets), 1)
     if overflow > 0.05 and work:  # 시간이 모자라면(어려움) 남은 시간을 작업일에 고르게 더 얹는다
         extra = overflow / len(work)

@@ -1,0 +1,9 @@
+# Render 배포용(FourDo 웹). Streamlit용 requirements.txt와 따로 둔다.
+flask>=3.0
+gunicorn>=22.0
+beautifulsoup4>=4.15.0
+httpx2>=2.14.0
+olefile>=0.47
+openai>=3.42.1
+pypdf>=7.0.0
+python-dotenv>=1.2.4

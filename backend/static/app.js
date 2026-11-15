@@ -1,60 +1,19 @@
-/* FourDo 프론트엔드. /api/analyze 응답을 DATA에 담아 렌더링. 서버에 연결되지 않으면 아래 예시 데이터로 대체. */
-let DATA = {
-  meta: { is_demo: true },
-  posting: { title: "[샘플] 대학생 아이디어 공모전", organizer: "[샘플 주최기관]", deadline: "2026-12-10T18:00:00+09:00" },
-  requirements: [
-    { label: "대학생 · 재학 중", criterion: "대학(원)생", status: "met", source: "code" },
-    { label: "팀 구성", criterion: "2~4인 팀 · 현재 팀 없음", status: "caution", source: "code" },
-    { label: "제출물: 기획서 + 시제품 영상", criterion: "영상 제작 경험 없음", status: "lacking", source: "ai" },
-    { label: "수상 후 의무 사항", criterion: "공고에 명확한 기재 없음", status: "needs_check", source: "ai" }
-  ],
-  readiness: { label: "해볼 만해요 · 시간이 변수", reasons: ["참가 자격은 충족해요", "팀 구성과 영상 제작 준비가 필요해요"], disclaimer: "준비도는 합격 확률이 아니에요." },
-  time: { min: 28, max: 36, available: 34 },
-  thisWeek: { title: "주제 후보 3개 정리하고 공고 평가기준 읽기", hours: 6, note: "목~일에 몰아서 해요" },
-  blockers: [
-    { d: "팀원이 없어요", s: "학과·동아리 커뮤니티에서 팀원을 모집하거나, 개인 참가가 가능한지 확인해요" },
-    { d: "영상 제작 경험이 없어요", s: "튜토리얼부터 보고, 영상 대신 이미지 시안으로 범위를 줄여요" }
-  ],
-  weeks: [
-    { w: 1, label: "주제", tasks: [["주제 후보 3개 정리", 3], ["공고 평가기준 읽기", 3]] },
-    { w: 2, label: "중간고사 주간", rest: true, tasks: [] },
-    { w: 3, label: "기획서", tasks: [["영상 제작 튜토리얼", 4], ["기획서 초안 작성", 10]] },
-    { w: 4, label: "영상, 제출", tasks: [["시제품 영상 제작", 8], ["최종 검토 및 제출", 2]] }
-  ],
-  fallbacks: ["팀원 구하기", "영상 대신 이미지 시안으로 범위 줄이기", "다음 회차 알림 받기"],
-  compare: {
-    generic: ["아이디어를 구상하고 기획서를 작성하세요", "충분한 시간을 두고 준비하세요", "팀원을 구해 역할을 나눠보세요"],
-    genericNote: "언제, 얼마나, 무엇부터인지 알 수 없어요",
-    mine: [["이번 주", "주제 후보 3개 · 약 6시간"], ["2주차", "중간고사 주간이라 쉬어가요"], ["3~4주차", "영상 경험이 없어 튜토리얼 4h 먼저"]],
-    mineNote: "3학년 · 주 12시간 · 기획 가능 · 팀 없음 반영 (예시)"
-  },
-  trust: [
-    { name: "공고 자격 요건 추출 정확도" },
-    { name: "제출물 및 준비 작업 추출 정확도" },
-    { name: "마감일 및 일정 계산 정확도" },
-    { name: "개인화 실행 계획 적합도" }
-  ]
-};
-/* 하루별 할 일 (데모). 실제 연결 시: 시간표 이미지 → 수업 시간 추출 → 코드가 남는 시간 계산 → AI가 할 일 배치 */
-DATA.daily = [
-  { d: "월", date: "11/16", free: 5, classes: [["09:00–10:30", "자료구조"], ["13:00–15:00", "오픈SW플랫폼"]], todos: [["19:00–20:30", "주제 후보 1차 정리", 1.5]] },
-  { d: "화", date: "11/17", free: 6, classes: [["10:30–12:00", "수치해석"]], todos: [["20:00–21:00", "공고 평가기준 읽기", 1]] },
-  { d: "수", date: "11/18", free: 4, classes: [["09:00–10:30", "자료구조"], ["15:00–17:00", "인공지능 개론"]], todos: [] },
-  { d: "목", date: "11/19", free: 6, classes: [["10:30–12:00", "수치해석"]], todos: [["13:00–14:30", "주제 후보 3개 확정", 1.5]] },
-  { d: "금", date: "11/20", free: 5, classes: [["13:00–15:00", "오픈SW플랫폼"]], todos: [] },
-  { d: "토", date: "11/21", free: 8, classes: [], todos: [["10:00–12:00", "기획서 방향 메모", 2]] },
-  { d: "일", date: "11/22", free: 8, classes: [], todos: [] }
-];
-const DEMO = DATA;
+/* FourDo 프론트엔드. /api/analyze 응답을 DATA에 담아 그린다. 계산은 모두 서버가 하고, 여기서는 보여 주기만 한다. */
+let DATA = null;
+let TRUST = [];
 const STATUS = { met: "충족", caution: "주의", lacking: "부족", needs_check: "확인 필요" };
-const SRC = { code: "코드 판정", ai: "AI 추출" };
+const VERDICT_BADGE = { "참여 가능": "met", "준비하면 가능": "caution", "확인 필요": "needs_check", "어려움": "lacking" };
 const $ = (s, r = document) => r.querySelector(s);
-const demo = () => DATA.meta.is_demo ? '<span class="badge demo">예시</span>' : "";
+/* 공고에서 온 글자는 그대로 HTML에 넣지 않는다 */
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const wait = ms => new Promise(r => setTimeout(r, ms));
 
 /* 화면 전환 */
+const SIDE_VIEWS = ["trust", "history"];
 function go(id) {
+  if (id === "history") renderHistory();
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === id));
-  document.querySelectorAll("[data-nav]").forEach(b => b.classList.toggle("on", b.dataset.nav === id || (id !== "trust" && b.dataset.nav === "input")));
+  document.querySelectorAll("[data-nav]").forEach(b => b.classList.toggle("on", b.dataset.nav === id || (!SIDE_VIEWS.includes(id) && b.dataset.nav === "input")));
   window.scrollTo(0, 0);
 }
 document.addEventListener("click", e => {
@@ -62,8 +21,8 @@ document.addEventListener("click", e => {
 });
 
 /* 입력 칩 */
-function chips(el, items, multi) {
-  el.innerHTML = items.map((t, i) => `<button type="button" class="chip" aria-pressed="${!multi && i === 0}">${t}</button>`).join("");
+function chips(el, items, multi, first = 0) {
+  el.innerHTML = items.map((t, i) => `<button type="button" class="chip" aria-pressed="${!multi && i === first}">${t}</button>`).join("");
   el.addEventListener("click", e => {
     const c = e.target.closest(".chip"); if (!c) return;
     if (multi) c.setAttribute("aria-pressed", c.getAttribute("aria-pressed") !== "true");
@@ -92,9 +51,9 @@ chips($("#mateSkills"), SKILLS, true);
 const pickedMates = () => [...document.querySelectorAll("#mateSkills .chip[aria-pressed=true]")].map(c => c.textContent);
 const syncMates = () => { $("#mateBox").hidden = picked("team") === "팀 없음"; };
 $("#team").addEventListener("click", syncMates);
-chips($("#goal"), ["경험 쌓기", "수상 목표"], false);
+chips($("#goal"), ["완주", "완성", "수상 도전"], false, 1);
 
-/* 프로필은 이 브라우저에만 저장(공고는 저장하지 않음) */
+/* 프로필은 이 브라우저에 저장해 두고 다음 공고에 다시 쓴다(공고는 저장하지 않음) */
 const PROFILE_KEY = "fourdo-profile";
 const PROFILE_FIELDS = ["major", "hours", "school", "region", "status", "age", "busy", "exp"];
 function saveProfile() {
@@ -109,33 +68,41 @@ function loadProfile() {
   const f = $("#form");
   PROFILE_FIELDS.forEach(k => { if (data[k] != null) f.elements[k].value = data[k]; });
   (data.skills || []).forEach(([name, level]) => { const c = $(`#skills .chip[data-name="${name}"]`); if (c) setLevel(c, level); });
-  ["team", "goal"].forEach(id => document.querySelectorAll(`#${id} .chip`).forEach(c => c.setAttribute("aria-pressed", String(c.textContent === data[id]))));
+  ["team", "goal"].forEach(id => {  // 예전에 저장한 값(예: 목표 '경험 쌓기')이 지금 칩에 없으면 기본값을 둔다
+    const all = [...document.querySelectorAll(`#${id} .chip`)];
+    if (all.some(c => c.textContent === data[id])) all.forEach(c => c.setAttribute("aria-pressed", String(c.textContent === data[id])));
+  });
   document.querySelectorAll("#mateSkills .chip").forEach(c => c.setAttribute("aria-pressed", String((data.mates || []).includes(c.textContent))));
   syncMates();
 }
 loadProfile();
 
-/* 분석 진행 (데모용 시뮬레이션) */
-const STEPS = ["공고 핵심 정보 파악", "지원 조건 및 일정 확인", "시간표 기반 가용 시간 계산", "하루별 맞춤 할 일 구성"];
-$("#form").addEventListener("submit", e => {
-  e.preventDefault(); saveProfile(); go("progress");
+/* 분석 진행: 공고를 읽고 정리하는 단계(AI)는 응답이 올 때까지 기다리고, 나머지 계산은 응답과 함께 끝난다 */
+const STEPS = ["공고 읽기", "제출물과 준비 방법 정리", "나에게 맞는 방법 고르기", "하루별 할 일 짜기"];
+function paintSteps(i) {
+  $("#stepList").innerHTML = STEPS.map((s, k) => {
+    const c = k < i ? "done" : k === i ? "now" : "";
+    return `<li class="${c}"><span class="tag">${k < i ? "완료" : k === i ? "진행 중" : "대기"}</span>${s}</li>`;
+  }).join("");
+  $("#bar").style.width = (i / STEPS.length * 100) + "%";
+}
+$("#form").addEventListener("submit", async e => {
+  e.preventDefault(); saveProfile(); go("progress"); paintSteps(0);
   const req = analyze(new FormData(e.target));
-  const list = $("#stepList"), bar = $("#bar"); let i = 0;
-  const tick = () => {
-    list.innerHTML = STEPS.map((s, k) => {
-      const c = k < i ? "done" : k === i ? "now" : "";
-      return `<li class="${c}"><span class="tag">${k < i ? "완료" : k === i ? "진행 중" : "대기"}</span>${s}</li>`;
-    }).join("");
-    bar.style.width = (i / STEPS.length * 100) + "%";
-    if (i++ < STEPS.length) setTimeout(tick, 900);
-    else req.then(r => { if (!r) return go("input"); Object.keys(answers).forEach(k => delete answers[k]); show(r); go("result"); });
-  };
-  tick();
+  await wait(700); paintSteps(1);
+  const r = await req;
+  if (!r) return go("input");
+  for (const i of [2, 3, 4]) { paintSteps(i); await wait(350); }  // 방법 고르기·배치는 응답에 함께 끝나 있다
+  Object.keys(answers).forEach(k => delete answers[k]);
+  show(r); go("result");
 });
 
-function show(r) { DATA = r; dayIdx = 0; done.clear(); renderResult(); renderPlan(); renderDaily(); renderCompare(true); renderTrust(); }
+function show(r) {
+  DATA = r; TRUST = r.trust || TRUST; dayIdx = 0; done.clear();
+  remember(r); renderResult(); renderPlan(); renderDaily(); renderCompare(true); renderTrust();
+}
 
-/* 서버 호출: 입력 오류(4xx)는 안내하고, 서버 장애·연결 실패 시 예시 데이터로 대체 */
+/* 서버 호출: 실패하면 이유를 알리고 입력 화면으로 돌아간다(예시 결과로 대체하지 않는다) */
 async function analyze(fd) {
   fd.set("skills", JSON.stringify(pickedSkills()));
   fd.set("team", picked("team"));
@@ -144,19 +111,18 @@ async function analyze(fd) {
   if (TT) fd.set("timetable", TT);
   try {
     const r = await fetch("/api/analyze", { method: "POST", body: fd });
-    if (r.status >= 400 && r.status < 500) { alert((await r.json()).error || "입력을 확인해 주세요."); return null; }
-    if (!r.ok) throw new Error(r.status);
-    return await r.json();
-  } catch (err) { console.warn(err); return DEMO; }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { alert(data.error || "분석하지 못했어요. 잠시 후 다시 시도해 주세요."); return null; }
+    return data;
+  } catch (err) { console.warn(err); alert("서버에 연결하지 못했어요. 서버가 켜져 있는지 확인해 주세요."); return null; }
 }
 
-/* 재판정·다시 짜기: 같은 분석에서 코드만 다시 계산(작업 분해는 그대로) */
+/* 재판정·방법 바꾸기·다시 짜기: 같은 분석을 다시 계산(공고는 다시 읽지 않는다) */
 async function recompute(path, body, btn) {
-  if (!DATA.session || !DATA.session.id) { alert("예시 결과에서는 쓸 수 없어요. 먼저 분석해 주세요."); return; }
   const label = btn.textContent; btn.disabled = true; btn.textContent = "다시 계산하는 중…";
   try {
     const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: DATA.session.id, ...body }) });
-    const data = await r.json();
+    const data = await r.json().catch(() => ({}));
     if (!r.ok) { alert(data.error || "다시 계산하지 못했어요."); return null; }
     return data;
   } catch (err) { console.warn(err); alert("서버에 연결하지 못했어요."); return null; }
@@ -166,16 +132,16 @@ async function recompute(path, body, btn) {
 /* 자격 확인 질문: 예/아니오로 답하면 그 답으로 다시 판정 */
 const answers = {};
 function questionsCard() {
-  const qs = (DATA.session && DATA.session.questions) || [];
+  const qs = DATA.session.questions || [];
   if (!qs.length) return "";
   qs.forEach(q => { if (!(q.q in answers)) answers[q.q] = q.answer; });
   return `<div class="card" id="questions"><h3>참가 자격 확인 질문</h3>
-    <p class="hint" style="margin:0 0 10px">공고 조건 중 프로필만으로 확인할 수 없는 것이에요. 답하면 다시 판정해요.</p>
+    <p class="hint" style="margin:0 0 10px">입력한 정보만으로는 알 수 없는 조건이에요. 답해 주시면 결과에 반영해요.</p>
     ${qs.map((q, i) => `<div class="req"><span class="badge ${answers[q.q] == null ? "needs_check" : answers[q.q] ? "met" : "lacking"}">${answers[q.q] == null ? "확인 필요" : answers[q.q] ? "예" : "아니오"}</span>
-      <div>${q.q}</div><div class="chips">
+      <div>${esc(q.q)}</div><div class="chips">
         <button type="button" class="chip" data-q="${i}" data-a="1" aria-pressed="${answers[q.q] === true}">예</button>
         <button type="button" class="chip" data-q="${i}" data-a="0" aria-pressed="${answers[q.q] === false}">아니오</button></div></div>`).join("")}
-    <div class="actions" style="margin-top:14px"><button class="btn primary" type="button" id="rejudge">답변 반영해서 다시 판정하기</button></div></div>`;
+    <div class="actions" style="margin-top:14px"><button class="btn primary" type="button" id="rejudge">답변 반영하기</button></div></div>`;
 }
 $("#result").addEventListener("click", async e => {
   const c = e.target.closest("[data-q]");
@@ -184,84 +150,97 @@ $("#result").addEventListener("click", async e => {
     answers[q] = answers[q] === a ? null : a; renderResult(); return;
   }
   const b = e.target.closest("#rejudge");
-  if (b) { const r = await recompute("/api/rejudge", { answers }, b); if (r) { show(r); go("result"); } }
+  if (b) { const r = await recompute("/api/rejudge", { answers }, b); if (r) { show(r); go("result"); } return; }
+  const p = e.target.closest("[data-pick]");
+  if (p) {  // 다른 방법 고르기: 추천 방법을 누르면 추천으로 되돌린다
+    const s = DATA.strategy[+p.dataset.pick], o = s.options[+p.dataset.opt];
+    if (o.chosen || !o.possible) return;
+    const y = window.scrollY, r = await recompute("/api/pick", { picks: { [s.submission]: o.recommended ? null : o.name } }, p);
+    if (r) { show(r); go("result"); window.scrollTo(0, y); }
+  }
 });
 
-/* 나의 맞춤 전략: 제출물마다 고른 방법, 이유, 다른 방법 */
+/* 나의 맞춤 전략: 제출물마다 추천 방법과 이유. 다른 방법을 누르면 그 방법으로 다시 계산 */
+const TIER_BADGE = { "수상 도전형": "met", "완성형": "caution", "완주형": "needs_check" };
 function strategyCard() {
   const S = DATA.strategy || [];
   if (!S.length) return "";
-  const who = w => Object.entries(w || {}).map(([k, v]) => `${k}: ${v}`).join(" · ");
+  const who = w => Object.entries(w || {}).map(([k, v]) => `${esc(k)}: ${esc(v)}`).join(" · ");
+  const opts = (s, i) => s.options.length > 1 ? `<div class="chips" style="margin-top:8px">${s.options.map((o, j) =>
+    `<button type="button" class="chip" data-pick="${i}" data-opt="${j}" aria-pressed="${o.chosen}" ${o.possible ? "" : "disabled"} title="${esc(o.how)}">${esc(o.name)} · ${o.tier} · ${o.hours}시간${o.recommended ? " · 추천" : ""}${o.possible ? "" : ` · ${esc(o.why)}`}</button>`).join("")}</div>` : "";
   return `<div class="card" id="strategy"><h3>나의 맞춤 전략</h3>
-    <p class="hint" style="margin:0 0 10px">같은 공고라도 내 역량·시간·목표에 맞춰 만드는 방법을 골랐어요. 고르는 건 코드가 해요.</p>
-    ${S.map(s => `<div class="req" style="align-items:start">
-      <span class="badge ${s.method ? (s.tier === "차별화" ? "met" : s.tier === "표준" ? "caution" : "needs_check") : "lacking"}">${s.tier || "불가"}</span>
-      <div><b>${s.submission}</b> · ${s.method ? `${s.method} (${s.hours}시간)` : "지금 역량으로는 만들 수 없어요"}
-        <small>${s.requirement || ""}</small>
-        ${s.how ? `<p style="margin:6px 0 0">${s.how}</p>` : ""}
-        ${s.steps.length ? `<small>단계: ${s.steps.map(x => `${x[0]} ${x[1]}h`).join(" → ")}</small>` : ""}
-        ${s.reasons.length ? `<ul class="plain" style="margin:6px 0 0">${s.reasons.map(r => `<li>${r}</li>`).join("")}</ul>` : ""}
+    <p class="hint" style="margin:0 0 10px">제출물마다 내 목표·역량·시간에 맞는 방법을 하나씩 추천했어요. 다른 방법을 누르면 그 방법으로 다시 계산해요.</p>
+    ${S.map((s, i) => `<div class="req" style="align-items:start;grid-template-columns:96px 1fr auto">
+      <span class="badge ${s.method ? TIER_BADGE[s.tier] || "caution" : "lacking"}" style="white-space:nowrap;justify-self:start">${s.tier || "어려움"}</span>
+      <div><b>${esc(s.submission)}</b> · ${s.method ? `${esc(s.method)} (${s.hours}시간)` : "지금 역량으로는 만들 수 없어요"}
+        <small>${esc(s.requirement)}</small>
+        ${s.how ? `<p style="margin:6px 0 0">${esc(s.how)}</p>` : ""}
+        ${s.steps.length ? `<small>순서: ${s.steps.map(x => `${esc(x[0])} ${x[1]}시간`).join(" → ")}</small>` : ""}
+        ${s.reasons.length ? `<ul class="plain" style="margin:6px 0 0">${s.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
         ${who(s.who) ? `<small>맡는 사람 · ${who(s.who)}</small>` : ""}
-        ${s.alternatives.length ? `<small>다른 방법 · ${s.alternatives.map(a => `${a.name}(${a.tier}, ${a.hours}h${a.possible ? "" : ", " + a.why})`).join(" / ")}</small>` : ""}
-      </div><span class="badge src code">코드 판정</span></div>`).join("")}</div>`;
+        ${opts(s, i)}
+      </div>${s.picked ? '<span class="badge src">직접 고름</span>' : "<span></span>"}</div>`).join("")}</div>`;
 }
 
 /* 결과 */
 function renderResult() {
-  const d = DATA, dl = new Date(d.posting.deadline);
-  const days = Math.max(0, Math.ceil((dl - new Date()) / 864e5));
-  const t = d.time, pct = Math.min(100, Math.round(t.available / t.max * 100));
+  const d = DATA, dl = d.posting.deadline ? new Date(d.posting.deadline) : null;
+  const days = dl ? Math.round((new Date(dl).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 864e5) : null;  // 날짜 차이(마감 당일 = D-0)
+  const t = d.time, pct = t.available ? Math.min(100, Math.round(t.need / t.available * 100)) : 100;  // 내 시간 중 쓰는 비율
   $("#result").innerHTML = `
-  <div class="head dark"><div>${DATA.meta.is_demo ? '<span class="badge demo">데모 예시 결과</span>' : ''}
-    <h2>${d.posting.title}</h2><p>${d.posting.organizer} · 마감 ${dl.getFullYear()}.${dl.getMonth() + 1}.${dl.getDate()}</p></div>
-    <div class="dday">D-${days}</div></div>
+  <div class="head dark"><div>
+    <h2>${esc(d.posting.title)}</h2><p>${esc(d.posting.organizer)} · ${dl ? `마감 ${dl.getFullYear()}.${dl.getMonth() + 1}.${dl.getDate()}` : "마감일 확인 필요"}</p></div>
+    <div class="dday">${days == null ? "" : days < 0 ? "마감" : days === 0 ? "D-DAY" : "D-" + days}</div></div>
   <div class="wrap"><div class="grid">
-    <div class="card"><h3>나의 도전 준비도 ${demo()}</h3>
-      <div class="level">${d.readiness.label}</div>
-      <ul class="plain">${d.readiness.reasons.map(r => `<li>${r}</li>`).join("")}</ul>
-      <p class="hint">${d.readiness.disclaimer}</p>
+    <div class="card"><h3>나의 도전 준비도</h3>
+      <div class="level">${esc(d.readiness.label)}</div>
+      <p style="margin:0 0 10px">${esc(d.readiness.summary)}</p>
+      <ul class="plain">${d.readiness.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>
+      <p class="hint">${esc(d.readiness.disclaimer)}</p>
       <h3 style="margin-top:22px">시간 예산</h3>
       <div class="meter"><i style="width:${pct}%"></i></div>
-      <p class="hint">필요 ${t.min}~${t.max}시간 / 가용 ${t.available}시간 · 코드 계산</p></div>
+      <p class="hint">마감까지 쓸 수 있는 ${t.available}시간 중 ${t.need}시간이 필요해요.</p></div>
     <div class="card"><h3>지원 조건 충족 여부</h3>
       ${d.requirements.map(r => `<div class="req"><span class="badge ${r.status}">${STATUS[r.status]}</span>
-        <div>${r.label}<small>${r.criterion}</small></div><span class="badge src ${r.source}">${SRC[r.source]}</span></div>`).join("")}</div>
+        <div>${esc(r.label)}<small>${esc(r.criterion)}</small></div></div>`).join("")}</div>
   </div>
   ${strategyCard() ? `<div class="grid one" style="margin-top:0">${strategyCard()}</div>` : ""}
   ${questionsCard() ? `<div class="grid one" style="margin-top:0">${questionsCard()}</div>` : ""}
   <div class="grid" style="margin-top:0">
-    <div class="card lime-card"><h3>이번 주 추천 작업</h3><b>${d.thisWeek.title}</b>
-      <p class="hint" style="color:var(--deep)">약 ${d.thisWeek.hours}시간 · ${d.thisWeek.note}</p></div>
+    <div class="card lime-card"><h3>${esc(d.today.when)} 할 일</h3><b>${esc(d.today.title)}</b>
+      <p class="hint" style="color:var(--deep)">${d.today.hours ? `약 ${d.today.hours}시간 · ` : ""}${esc(d.today.note)}</p></div>
     <div class="card"><h3>도전을 막는 요소와 해결 방법</h3>
-      ${d.blockers.map(b => `<p><b>${b.d}</b><br><span class="hint">${b.s}</span></p><br>`).join("")}</div>
+      ${d.blockers.map(b => `<p><b>${esc(b.d)}</b><br><span class="hint">${esc(b.s)}</span></p><br>`).join("")}</div>
   </div>
-  <div class="actions"><button class="btn primary" data-go="plan">나만의 실행 계획 확인하기</button>
-    <button class="btn" data-go="input">다시 분석하기</button></div></div>`;
+  <div class="actions"><button class="btn primary" data-go="daily">하루별 할 일 보기</button>
+    <button class="btn" data-go="plan">마감까지 전체 일정 보기</button>
+    <button class="btn" data-go="input">다른 공고 분석하기</button></div></div>`;
 }
 
-/* 실행 계획 */
+/* 전체 일정(주차별) */
 function renderPlan() {
   const d = DATA, t = d.time;
   $("#plan").innerHTML = `
   <div class="head dark"><div><h2>마감일까지, 나에게 맞는 준비 계획.</h2>
-    <p>총 예상 ${t.min}~${t.max}시간 · 확보 가능 ${t.available}시간 ${demo()}</p></div></div>
+    <p>필요한 시간 ${t.need}시간 · 쓸 수 있는 시간 ${t.available}시간</p></div></div>
   <div class="wrap"><div class="grid one"><div class="card"><h3>주차별 작업</h3>
-    <div class="weeks">${d.weeks.map(w => `<div class="week ${w.rest ? "rest" : ""}"><b>${w.w}주 · ${w.label}</b>
-      <ul>${w.tasks.map(k => `<li><span>${k[0]}</span><span>${k[1]}h</span></li>`).join("") || "<li>쉬어가요</li>"}</ul></div>`).join("")}</div></div>
-    <div class="card"><h3>시간이 모자라면</h3><ul class="plain">${d.fallbacks.map(f => `<li>${f}</li>`).join("")}</ul></div></div>
+    <div class="weeks">${d.weeks.map(w => `<div class="week ${w.rest ? "rest" : ""}"><b>${w.w}주 · ${esc(w.label)}</b>
+      <ul style="padding-left:0">${w.tasks.map(k => `<li><span>${esc(k[0])}</span><span style="white-space:nowrap">${k[1]}시간</span></li>`).join("") || "<li>쉬어가요</li>"}
+        ${w.goal ? `<li style="margin-top:6px;font-weight:700">${esc(w.goal)}</li>` : ""}</ul></div>`).join("")}</div></div></div>
   <div class="actions"><button class="btn primary" data-go="daily">하루별 할 일 보기</button>
     <button class="btn" data-go="compare">개인화 비교 보기</button>
     <button class="btn" data-go="result">결과로 돌아가기</button></div></div>`;
 }
 
-/* 개인화 비교 */
+/* 개인화 비교: 같은 공고를 왼쪽은 프로필 없이(완성형 기준), 오른쪽은 내 프로필로 계산한 결과 */
 function renderCompare(on) {
+  if (!DATA) return;
   const c = DATA.compare;
   $("#cmp").innerHTML = `
-  <div class="pane gen ${on ? "dim" : ""}"><h3>일반 AI 답변 <span class="badge src ai">프로필 없음</span></h3>
-    ${c.generic.map(x => `<p>· ${x}</p>`).join("")}<footer>${c.genericNote}</footer></div>
-  <div class="pane me ${on ? "" : "dim"}"><h3>FourDo · 내 프로필 반영 <span class="badge met">프로필 반영</span></h3>
-    ${c.mine.map(m => `<div class="row"><b>${m[0]}</b><span>${m[1]}</span></div>`).join("")}<footer>${c.mineNote}</footer></div>`;
+  <div class="pane gen ${on ? "dim" : ""}"><h3>누구에게나 같은 계획 <span class="badge src ai">프로필 없음</span></h3>
+    ${c.generic.map(m => `<div class="row"><b style="color:inherit">${esc(m[0])}</b><span>${esc(m[1])}</span></div>`).join("")}<footer>${esc(c.genericNote)}</footer></div>
+  <div class="pane me ${on ? "" : "dim"}"><h3>나에게 맞춘 계획 <span class="badge met">내 프로필 반영</span></h3>
+    ${c.mine.map(m => `<div class="row"><b>${esc(m[0])}</b><span>${esc(m[1])}</span></div>`).join("")}<footer>${esc(c.mineNote)}</footer></div>`;
   document.querySelectorAll(".toggle button").forEach(b => b.classList.toggle("on", (b.dataset.p === "on") === on));
 }
 document.querySelector(".toggle").addEventListener("click", e => {
@@ -275,11 +254,13 @@ function renderTrust() {
     <p class="lime-line">실제 검수 결과와 합성 테스트 결과는 따로 보여드려요.</p></div>
   <div class="wrap page-pad"><div class="card" style="margin-top:-56px">
     <div class="metric mh"><span>항목</span><span>실제 검수</span><span>합성 테스트</span></div>
-    ${DATA.trust.map(m => `<div class="metric"><b>${m.name}</b>
-      <span class="v">${m.real ?? "측정 전"}</span>
-      <span class="v">${m.synth ?? "측정 전"}</span></div>`).join("")}
+    ${TRUST.map(m => `<div class="metric"><b>${esc(m.name)}</b>
+      <span class="v">${esc(m.real ?? "측정 전")}</span>
+      <span class="v">${esc(m.synth ?? "측정 전")}</span></div>`).join("")}
     <p class="hint">검수가 끝나는 대로 결과를 공개해요.</p></div></div>`;
 }
+fetch("/api/trust").then(r => r.json()).then(t => { TRUST = t; renderTrust(); }).catch(() => {});
+
 /* 에브리타임 시간표 업로드 */
 let TT = null, dayIdx = 0; const done = new Set();
 function setTT(f) {
@@ -298,47 +279,90 @@ $("#ttDel").addEventListener("click", () => setTT(null));
   if (ev === "drop") setTT(e.dataTransfer.files[0]);
 }));
 
-/* 하루별 할 일 */
+/* 하루별 할 일: 오늘부터 마감일까지, 한 주씩 넘겨 본다 */
+const TIMETABLE_NOTE = {
+  ok: "시간표의 수업 시간을 피해서 짰어요.",
+  failed: "시간표를 읽지 못해서 수업 시간은 반영하지 못했어요. 평일 저녁과 주말 낮을 기준으로 짰어요.",
+  none: "시간표가 없어서 평일 저녁과 주말 낮을 기준으로 짰어요. 시간표를 올리면 수업 시간을 피해 드려요.",
+};
 function renderDaily() {
-  const D = DATA.daily, d = D[dayIdx];
+  const D = DATA.daily, d = D[dayIdx], from = Math.floor(dayIdx / 7) * 7, hasTT = DATA.meta.timetable === "ok";
   const total = D.reduce((s, x) => s + x.todos.length, 0);
   $("#daily").innerHTML = `
-  <div class="head dark"><div>${DATA.meta.is_demo ? '<span class="badge demo">데모 예시</span>' : ''}
-    <h2>하루별 할 일</h2><p>수업 시간을 피해서 짠 이번 주 ToDo</p></div>
+  <div class="head dark"><div>
+    <h2>하루별 할 일</h2><p>오늘부터 마감일까지, 날마다 할 일을 정리했어요</p></div>
     <div class="dday" style="font-size:34px">${done.size}/${total}</div></div>
   <div class="wrap"><div class="card" style="margin-top:-48px">
-    <p class="hint" style="margin:0 0 14px">${DATA.meta.is_demo ? "서버에 연결되지 않아 예시 시간표 기준이에요." : DATA.meta.timetable ? "올린 시간표를 기준으로 짰어요." : "시간표를 올리지 않아서 하루 가용 시간을 12시간으로 가정했어요."}</p>
-    <div class="chips">${D.map((x, i) => `<button type="button" class="chip" data-day="${i}" aria-pressed="${i === dayIdx}">${x.d} ${x.date}</button>`).join("")}</div>
+    <p class="hint" style="margin:0 0 14px">${TIMETABLE_NOTE[DATA.meta.timetable]}</p>
+    <div class="chips">
+      ${from > 0 ? `<button type="button" class="chip" data-day="${from - 7}">‹ 이전 주</button>` : ""}
+      ${D.slice(from, from + 7).map((x, i) => `<button type="button" class="chip" data-day="${from + i}" aria-pressed="${from + i === dayIdx}" title="${x.todos.length ? `할 일 ${x.todos.length}개` : "할 일 없음"}">${x.d} ${x.date}${x.todos.length ? " •" : ""}</button>`).join("")}
+      ${from + 7 < D.length ? `<button type="button" class="chip" data-day="${from + 7}">다음 주 ›</button>` : ""}</div>
+    ${d.note ? `<p class="hint" style="color:var(--violet);font-weight:700">${esc(d.note)}</p>` : ""}
     <div class="cols">
       <div><h3>수업 · 일정</h3>
-        ${d.classes.map(c => `<div class="slot"><b>${c[0]}</b><span>${c[1]}</span></div>`).join("") || '<p class="hint">수업이 없는 날이에요</p>'}
-        <p class="hint">남는 시간 약 ${d.free}시간 <span class="badge src">코드 계산</span></p></div>
-      <div><h3>이날 할 일 <span class="badge src ai">AI 생성</span></h3>
+        ${d.classes.map(c => `<div class="slot"><b>${esc(c[0])}</b><span>${esc(c[1])}</span></div>`).join("") || `<p class="hint">${hasTT ? "수업이 없는 날이에요." : "시간표를 올리면 수업도 함께 보여요."}</p>`}
+        <p class="hint">${d.done ? `${d.done}시간 작업했어요 · 남은 시간 ${d.free}시간` : `쓸 수 있는 시간 ${d.free}시간`}${DATA.meta.team > 1 ? " (팀 전체)" : ""}</p></div>
+      <div><h3>이날 할 일</h3>
         ${d.todos.map((t, k) => `<label class="todo"><input type="checkbox" data-k="${k}" ${done.has(dayIdx + "-" + k) ? "checked" : ""}>
-          <span>${t[1]}<small>${t[0]} · ${t[2]}시간</small></span></label>`).join("") || '<p class="hint">할 일이 없어요. 쉬어가요.</p>'}</div>
+          <span>${esc(t[1])}<small>${esc(t[0])} · ${t[2]}시간</small></span></label>`).join("") || `<p class="hint">${d.done ? "이날 할 일을 끝냈어요." : "할 일이 없어요. 쉬어가요."}</p>`}</div>
     </div></div>
   ${progressNote()}
-  <div class="actions"><button class="btn primary" type="button" id="replan" ${done.size ? "" : "disabled"}>체크한 일 반영해서 다시 짜기</button>
-    <button class="btn" data-go="compare">개인화 비교 보기</button>
-    <button class="btn" data-go="plan">주차별 계획으로</button></div></div>`;
+  <div class="actions"><button class="btn primary" type="button" id="replan" ${done.size ? "" : "disabled"}>끝낸 일 반영해서 다시 짜기</button>
+    <button class="btn" data-go="plan">마감까지 전체 일정 보기</button>
+    <button class="btn" data-go="result">결과로 돌아가기</button></div></div>`;
 }
 function progressNote() {
-  const p = DATA.session && DATA.session.progress;
+  const p = DATA.session.progress;
   if (!p || !p.hours) return "";
-  return `<p class="hint" style="text-align:center">지금까지 끝낸 작업 ${p.hours}시간을 빼고 남은 일정을 다시 짰어요 · 판정: ${DATA.meta.verdict}</p>`;
+  return `<p class="hint" style="text-align:center">끝낸 작업 ${p.hours}시간을 반영해서 남은 일정을 다시 짰어요.</p>`;
 }
 $("#daily").addEventListener("click", async e => {
+  const day = e.target.closest("[data-day]");
+  if (day) { dayIdx = +day.dataset.day; renderDaily(); return; }
   const b = e.target.closest("#replan"); if (!b) return;
-  const doneItems = [...done].map(key => { const [d, k] = key.split("-").map(Number); const t = DATA.daily[d].todos[k]; return [t[3] || t[1], t[4] ?? t[2]]; });
+  const doneItems = [...done].map(key => { const [d, k] = key.split("-").map(Number); const t = DATA.daily[d].todos[k]; return [t[3], t[4]]; });
   const r = await recompute("/api/replan", { done: doneItems }, b);
   if (r) { show(r); go("daily"); }
-});
-$("#daily").addEventListener("click", e => {
-  const b = e.target.closest("[data-day]"); if (b) { dayIdx = +b.dataset.day; renderDaily(); }
 });
 $("#daily").addEventListener("change", e => {
   const c = e.target.closest("[data-k]"); if (!c) return;
   const key = dayIdx + "-" + c.dataset.k; c.checked ? done.add(key) : done.delete(key); renderDaily();
 });
 
-renderTrust(); renderCompare(true); go("input");
+/* 내 도전 기록: 분석한 공고 목록은 이 브라우저에, 분석 재료는 서버에 있다. 다시 열면 오늘 기준으로 일정을 다시 계산한다 */
+const HISTORY_KEY = "fourdo-history";
+function records() { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; } }
+function keep(list) { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 30))); } catch {} }
+function remember(r) {
+  const item = { id: r.session.id, title: r.posting.title, organizer: r.posting.organizer, deadline: r.posting.deadline, verdict: r.meta.verdict };
+  keep([item, ...records().filter(x => x.id !== item.id)]);
+}
+function renderHistory() {
+  const list = records(), day = iso => { const d = new Date(iso); return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`; };
+  $("#history").innerHTML = `
+  <div class="head dark"><div><h2>내 도전 기록</h2><p>다시 열면 오늘 날짜에 맞춰 일정을 새로 짜 드려요</p></div></div>
+  <div class="wrap"><div class="card" style="margin-top:-48px">
+    ${list.map(x => `<div class="req" style="grid-template-columns:110px 1fr auto"><span class="badge ${VERDICT_BADGE[x.verdict] || "caution"}" style="justify-self:start">${esc(x.verdict)}</span>
+      <div>${esc(x.title)}<small>${esc(x.organizer)}${x.deadline ? ` · 마감 ${day(x.deadline)}` : ""}</small></div>
+      <div class="chips"><button type="button" class="chip" data-open="${esc(x.id)}">열기</button><button type="button" class="chip" data-drop="${esc(x.id)}">지우기</button></div></div>`).join("")
+      || '<p class="hint" style="margin:0">아직 분석한 공고가 없어요.</p>'}
+    <p class="hint">기록은 이 브라우저에만 저장돼요.</p></div>
+  <div class="actions"><button class="btn primary" data-go="input">공고 분석하기</button></div></div>`;
+}
+$("#history").addEventListener("click", async e => {
+  const drop = e.target.closest("[data-drop]");
+  if (drop) { keep(records().filter(x => x.id !== drop.dataset.drop)); renderHistory(); return; }
+  const open = e.target.closest("[data-open]"); if (!open) return;
+  open.disabled = true;
+  try {
+    const r = await fetch("/api/session/" + open.dataset.open), data = await r.json().catch(() => ({}));
+    if (r.status === 410) { alert(data.error); keep(records().filter(x => x.id !== open.dataset.open)); renderHistory(); return; }
+    if (!r.ok) { alert(data.error || "기록을 열지 못했어요."); return; }
+    Object.keys(answers).forEach(k => delete answers[k]);
+    show(data); go("result");
+  } catch (err) { console.warn(err); alert("서버에 연결하지 못했어요."); }
+  finally { open.disabled = false; }
+});
+
+renderTrust(); go("input");

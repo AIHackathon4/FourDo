@@ -42,7 +42,8 @@ def test_same_notice_different_methods_by_skill():
     video = choose(card(), student(skills={"기획": "가능", "영상": "입문"}), TODAY)
     assert picked(no_video) == ["사례 조사 기획서", "슬라이드+음성"]
     assert picked(video) == ["사례 조사 기획서", "화면녹화+자막"]
-    assert any("영상 입문(없음)이 필요해서" in r for r in no_video.choices[1].reasons)
+    assert any("'화면녹화+자막'은 영상 입문 수준이 필요해요. 그래서 지금 할 수 있는 '슬라이드+음성'을 추천해요" in r
+               for r in no_video.choices[1].reasons)
     assert no_video.verdict == "준비하면 가능" and video.verdict == "참여 가능"
 
 
@@ -122,7 +123,7 @@ def test_one_level_short_is_allowed_with_more_time():
     plan = beginner.choices[0]
     assert plan.option["name"] == "사례 조사 기획서" and plan.hours == 12  # 8h × 1.5
     assert plan.who == {"기획": "본인 보완"} and beginner.verdict == "준비하면 가능"
-    assert any("1.5배" in r for r in plan.reasons)
+    assert any("익히는 시간까지" in r for r in plan.reasons)
 
 
 def test_same_tier_picks_path_matching_strength():
@@ -142,3 +143,58 @@ def test_unpersonalized_uses_standard_for_everyone():
 def test_closed_notice_is_hard_without_shrinking():
     s = choose(card(deadline="2026-10-01"), student(), TODAY)
     assert s.verdict == "어려움" and not any("낮췄어요" in r for c in s.choices for r in c.reasons)
+
+
+def test_goal_levels_map_to_tiers():
+    strong = {"기획": "능숙", "디자인": "가능", "영상": "능숙"}
+    roomy = {"weekday_hours": 3, "weekend_hours": 6}
+    finish = choose(card(), student(skills=strong, goal="완주", **roomy), TODAY)
+    complete = choose(card(), student(skills=strong, goal="완성", **roomy), TODAY)
+    award = choose(card(), student(skills=strong, goal="수상 도전", **roomy), TODAY)
+    assert picked(finish) == ["서식 채우기", "슬라이드+음성"]
+    assert picked(complete) == ["사례 조사 기획서", "화면녹화+자막"]
+    assert picked(award) == ["프로토타입 캡처 기획서", "촬영+편집"]
+    assert any("'수상 도전' 목표에 맞는" in r for r in award.choices[0].reasons)
+
+
+def test_missing_skill_gives_substitute_and_says_so():
+    s = choose(card(), student(goal="완성"), TODAY)  # 영상 없음
+    video = s.choices[1]
+    assert video.option["name"] == "슬라이드+음성" and video.substitute
+    assert any("추천해요" in r for r in video.reasons)
+    assert next(c for c in s.checks if c.item == "필요 역량").status == "warn"
+
+
+def test_student_pick_overrides_recommendation_and_recomputes():
+    base = choose(card(), student(), TODAY)
+    s = choose(card(), student(), TODAY, picks={"기획서": "서식 채우기"})
+    assert picked(s) == ["서식 채우기", "슬라이드+음성"]
+    assert s.choices[0].picked and s.choices[0].recommended == "사례 조사 기획서"
+    assert s.need_hours < base.need_hours
+    # 할 수 없는 방법(역량 부족)을 고르면 무시하고 추천을 쓴다
+    blocked = choose(card(), student(), TODAY, picks={"시연 영상": "촬영+편집"})
+    assert picked(blocked) == picked(base) and not blocked.choices[1].picked
+
+
+def test_picked_heavy_method_is_not_lowered_and_time_says_so():
+    tight = student(skills={"기획": "능숙", "디자인": "가능", "영상": "능숙"}, weekday_hours=0.3, weekend_hours=0.5)
+    s = choose(card(), tight, TODAY, picks={"시연 영상": "촬영+편집"})
+    assert s.choices[1].option["name"] == "촬영+편집"  # 시간이 모자라도 직접 고른 방법은 낮추지 않는다
+    time = next(c for c in s.checks if c.item == "시간")
+    assert time.status == "fail" and "고른 방법대로 하면" in time.detail
+
+
+def test_lowered_method_drops_reasons_of_the_method_it_replaced():
+    busy = student(skills={"기획": "입문"}, goal="완성", weekday_hours=0.2, weekend_hours=0.4)  # 완성형은 기획 보완(1.5배)
+    s = choose(card(), busy, TODAY)
+    plan = s.choices[0]
+    assert plan.option["name"] == "서식 채우기"
+    assert len(plan.reasons) == 1 and "'사례 조사 기획서' 대신 '서식 채우기'로 낮췄어요" in plan.reasons[0]
+
+
+def test_particles_follow_final_consonant():
+    from aihack4.strategy import josa, quoted
+    assert josa("기획서", "은는") == "기획서는" and josa("영상", "은는") == "영상은"
+    assert josa("기획서(아이디어 부문)", "을를") == "기획서(아이디어 부문)을" and josa("PDF", "을를") == "PDF을(를)"
+    assert quoted("서식 채우기", "으로") == "'서식 채우기'로" and quoted("촬영", "으로") == "'촬영'으로"
+    assert quoted("연필", "으로") == "'연필'로"  # ㄹ 받침

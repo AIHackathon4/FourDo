@@ -17,7 +17,7 @@ from .collector.agent import _complete
 
 LEVELS = ("입문", "가능", "능숙")
 EXPERIENCES = ("처음", "참가 경험", "수상 경험")
-GOALS = ("경험 쌓기", "수상 목표")
+GOALS = ("경험 쌓기", "수상 목표", "완주", "완성", "수상 도전")  # 뒤의 셋은 설계 v3 목표(strategy.GOAL_TIER)
 TEAM_MODES = ("혼자", "팀 있음", "팀원 구하는 중")
 VERDICTS = ("참여 가능", "준비하면 가능", "확인 필요", "어려움")
 
@@ -157,6 +157,7 @@ class Profile:
     blocked: list[Period] = field(default_factory=list)
     note: str = ""
     age: int | None = None  # 만 나이. 나이 제한이 있는 공고에서만 쓴다
+    daily_cap: dict[int, float] = field(default_factory=dict)  # 요일(월=0) → 수업을 뺀 빈 시간. 시간표를 올렸을 때만
 
     def people(self) -> int:
         return self.team_size if self.team == "팀 있음" else 1
@@ -164,6 +165,7 @@ class Profile:
     def hours_on(self, day: date) -> float:
         """그날 팀 전체가 실제로 쓸 수 있는 작업 시간."""
         own = self.weekend_hours if day.weekday() >= 5 else self.weekday_hours
+        own = min(own, self.daily_cap.get(day.weekday(), own))
         return own * (1 + TEAM_EFFICIENCY * (self.people() - 1))
 
 
@@ -253,7 +255,7 @@ def schedule(tasks: list[Task], days: list[date], profile: Profile) -> float:
     쓸 수 있는 시간에 맞춘다. 그래야 계획이 학생의 하루 시간을 넘지 않는다.
     최소 시간조차 넘으면(어려움) 최소 시간으로 잡는다(이때는 계획이 가용 시간을 넘는다)."""
     for task in tasks:
-        task.hours = task.hours_max if profile.goal == "수상 목표" else round((task.hours_min + task.hours_max) / 2, 1)
+        task.hours = task.hours_max if profile.goal in ("수상 목표", "수상 도전") else round((task.hours_min + task.hours_max) / 2, 1)
     total = sum(task.hours for task in tasks)
     if not days:
         return total
@@ -431,7 +433,7 @@ def apply_progress(tasks: list[Task], progress: dict[str, float], profile: Profi
     left_tasks = []
     for task in tasks:
         done = progress.get(task.name, 0.0)
-        ideal = task.hours_max if profile.goal == "수상 목표" else (task.hours_min + task.hours_max) / 2
+        ideal = task.hours_max if profile.goal in ("수상 목표", "수상 도전") else (task.hours_min + task.hours_max) / 2
         left = max(0.0, 1 - done / ideal) if ideal else 1.0
         if left < 0.05 and task.name != FINAL_TASK["name"]:
             continue

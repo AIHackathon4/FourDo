@@ -83,3 +83,13 @@ def test_weeks_group_by_seven_days():
     r = plan(profile())
     w = weeks(r, TODAY)
     assert w[0]["start"] == TODAY and sum(sum(x["tasks"].values()) for x in w) >= 15
+
+
+def test_first_work_day_has_work_and_spent_time_today_is_not_reused():
+    light = profile(weekday_hours=1, weekend_hours=2)  # 고른 속도의 하루 몫이 1시간보다 적어도
+    r = plan(light)
+    assert r.days[0].date == TODAY and r.days[0].hours >= 1  # 첫날부터 할 일이 있다
+    done = {step_key("기획서", "자료 조사"): 1.0}
+    again = plan(light, progress=done, spent={TODAY: 1.0})  # 오늘 1시간을 이미 썼다
+    assert again.days[0].date == TODAY and again.days[0].hours == 0
+    assert round(sum(i.hours for _, i in work_items(again)), 1) == 14

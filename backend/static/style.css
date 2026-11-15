@@ -50,6 +50,7 @@ input:focus,textarea:focus,select:focus{outline:3px solid var(--tint);border-col
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{padding:8px 16px;border:1px solid var(--line);border-radius:999px;font-size:14px;background:#fff}
 .chip[aria-pressed=true]{background:var(--violet);border-color:var(--violet);color:#fff}
+.chip:disabled{opacity:.45;cursor:not-allowed}
 .btn{padding:14px 28px;border-radius:14px;font-weight:700;font-size:16px;border:1px solid var(--violet);color:var(--violet);background:#fff}
 .btn.primary{background:var(--violet);color:#fff}
 .btn.lime{background:var(--lime);color:var(--deep);border-color:var(--lime)}
