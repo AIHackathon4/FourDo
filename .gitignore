@@ -21,3 +21,5 @@ data/contests/
 
 # Streamlit 비밀 값 — 커밋 금지
 .streamlit/secrets.toml
+# 공고 카드 캐시(공고 원문에서 만든 것)
+backend/.card_cache/

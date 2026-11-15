@@ -217,7 +217,8 @@ def choose(card: dict, profile: Profile, today: date, answers: dict[str, bool] |
 
     choices = [initial_choice(sub, profile) for sub in card["submissions"]]
     wanted = sum(c.hours for c in choices)
-    fit_to_time(choices, capacity, profile)
+    if days_left is not None and days_left >= 0:  # 마감이 지났으면 범위를 줄이지 않는다(의미가 없다)
+        fit_to_time(choices, capacity, profile)
     need = round(sum(c.hours for c in choices) + final, 1)
 
     eligibility, questions = eligibility_check(as_notice(card, profile), profile, answers)

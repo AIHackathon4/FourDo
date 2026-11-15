@@ -1,13 +1,16 @@
-"""FourDo 백엔드 (Flask). 실행: python backend/app.py → http://localhost:5000
+"""FourDo 백엔드 (Flask). 실행: uv run python backend/app.py → http://localhost:5000
 
-판정 엔진은 PODO 엔진(src/aihack4)을 그대로 쓴다. LLM은 읽기만 하고 계산은 코드가 한다.
-  1) 공고 읽기·추출: collector.intake (링크면 모집요강 페이지·첨부파일까지 따라가 읽음)
-  2) 자격 조건 추출 → 코드 비교, 작업 분해(LLM) → 시간·판정·일정 계산(코드), 조언 문장(LLM)
-  3) 비교용 일반 계획(프로필 없음, 같은 모델) — 개인화 비교 화면용
-  4) 시간표 이미지 → 수업 추출(Gemini, 선택). 키가 없으면 시간표 없이 진행
-엔진 결과를 프론트가 그리는 JSON으로 옮기는 일은 adapter.py가 한다.
+설계 v3(docs/백엔드_설계_v3.md): LLM은 선택지를 만들고, 코드가 고른다.
+  1) 공고 읽기: 링크면 페이지와 첨부파일만, 아니면 붙여넣은 본문
+  2) 공고 카드(LLM 1회, CARD_MODEL): 기본 정보·자격 조건·평가 기준·제출물별 만드는 방법 선택지.
+     학생과 무관하므로 원문이 같으면 저장해 둔 카드를 다시 쓴다
+  3) 맞춤 전략(코드): 역량·팀원·시간·목표로 방법을 고르고 판정
+  4) 로드맵(코드): 고르게, 최소 1시간, 못 쓰는 날 건너뛰기, 여유 기간, 중간 목표
+  5) 시간표 이미지 → 수업 추출(Gemini, 선택). 키가 없으면 시간표 없이 진행
+재판정·다시 짜기·비교는 카드를 다시 쓰므로 LLM을 부르지 않는다. 화면 JSON 변환은 adapter.py.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -15,7 +18,7 @@ import sys
 import uuid
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,10 +30,10 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 load_dotenv(ROOT / ".env")
 
-from aihack4 import baselines as bl  # noqa: E402
-from aihack4.collector import intake  # noqa: E402
+from aihack4.card import CardError, extract_card, read_url  # noqa: E402
 from aihack4.collector.fetcher import Fetcher  # noqa: E402
-from aihack4.feasibility import advise, evaluate, judge  # noqa: E402
+from aihack4.roadmap import build, step_key  # noqa: E402
+from aihack4.strategy import choose, unpersonalized  # noqa: E402
 
 import adapter  # noqa: E402
 
@@ -39,6 +42,7 @@ app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 KST = timezone(timedelta(hours=9))
 IMG_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 TRUST = json.loads((Path(__file__).with_name("trust.json")).read_text(encoding="utf-8"))["metrics"]
+CARD_CACHE = Path(__file__).with_name(".card_cache")  # 공고 원문 해시 → 카드(커밋하지 않음)
 TIMETABLE_MODELS = [os.getenv("TIMETABLE_MODEL", "gemini-4-hydrogen"), "gemini-4-hydrogen", "gemini-3.8-flash"]
 TIMETABLE_PROMPT = """이 이미지는 대학생의 에브리타임 시간표야. 수업만 JSON 하나로 옮겨 적어(설명·코드블록 금지).
 {"classes":[{"day":0,"start":"HH:MM","end":"HH:MM","name":str}]}  day는 월=0 … 일=6.
@@ -46,21 +50,28 @@ TIMETABLE_PROMPT = """이 이미지는 대학생의 에브리타임 시간표야
 log = logging.getLogger("fourdo")
 
 
-def llm() -> tuple[OpenAI, str]:
-    return OpenAI(), os.environ["LLM_MODEL"]
+def card_model() -> str:
+    return os.getenv("CARD_MODEL") or os.environ["LLM_MODEL"]
 
 
-def read_notice(text: str, today: date) -> tuple[dict, list[str]]:
-    """링크든 본문이든 엔진이 쓰는 구조화 공고(dict)로 만든다. 실패하면 IntakeError(사용자에게 보여 줄 문장)."""
-    client, model = llm()
+def read_source(text: str) -> str:
     text = text.strip()
     if text.startswith(("http://", "https://")) and " " not in text:
-        result = intake.intake_url(client, model, Fetcher(), text, today.isoformat())
-    else:
-        result = intake.intake_text(client, model, text, today.isoformat())
-    if not result.agent.notice:
-        raise intake.IntakeError("공고 내용을 읽지 못했어요. 모집요강을 직접 붙여넣어 주세요.")
-    return result.agent.notice, result.warnings
+        return read_url(Fetcher(), text)
+    return text
+
+
+def notice_card(text: str, today) -> dict:
+    """원문이 같으면 저장해 둔 카드를 쓴다(같은 공고에는 같은 선택지)."""
+    source = read_source(text)
+    key = hashlib.sha256(f"{card_model()}\n{source}".encode()).hexdigest()[:20]
+    path = CARD_CACHE / f"{key}.json"
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    card, _ = extract_card(OpenAI(), card_model(), source, today)
+    CARD_CACHE.mkdir(exist_ok=True)
+    path.write_text(json.dumps(card, ensure_ascii=False), encoding="utf-8")
+    return card
 
 
 def timetable_classes(image: bytes, mime: str) -> list[dict] | None:
@@ -83,29 +94,7 @@ def timetable_classes(image: bytes, mime: str) -> list[dict] | None:
     return None
 
 
-def generic_plan(notice: dict, today: date) -> dict | None:
-    """개인화 비교용: 프로필 없이 같은 모델이 짠 계획(평가의 비교 조건 A와 같은 프롬프트)."""
-    try:
-        client, model = llm()
-        plan, _ = bl.generic_plan(client, model, notice, today)
-        return plan
-    except Exception as error:
-        log.warning("generic plan: %s", error)
-        return None
-
-
-@app.get("/")
-def index():
-    return app.send_static_file("index.html")
-
-
-@app.get("/api/health")
-def health():
-    return {"ok": True, "engine": "podo"}
-
-
-# 분석 한 번의 재료(공고, 프로필, LLM 작업 분해 등)를 잠깐 보관한다. 재판정·다시 짜기는 이걸로 코드만 다시 돌린다.
-# 데모용 메모리 보관이라 서버를 다시 켜면 사라진다(그때는 다시 분석).
+# 분석 한 번의 재료(카드, 프로필 등)를 잠깐 보관한다. 데모용 메모리 보관이라 서버를 다시 켜면 사라진다.
 SESSIONS: OrderedDict[str, dict] = OrderedDict()
 MAX_SESSIONS = 200
 
@@ -118,12 +107,34 @@ def remember(state: dict) -> str:
     return analysis_id
 
 
-def respond(analysis_id: str, state: dict, result):
+def respond(analysis_id: str, state: dict):
+    """카드 + 프로필 + 답변 + 진행 → 전략·로드맵을 코드로 계산해 화면 JSON으로."""
+    today = datetime.now(KST).date()
+    card, profile = state["card"], state["profile"]
+    strategy = choose(card, profile, today, state["answers"] or None)
+    roadmap = build(strategy, profile, state["progress"] or None)
     return jsonify(adapter.to_response(
-        state["notice"], result, state["profile"], state["today"], generic=state["generic"],
+        card, strategy, unpersonalized(card, today), roadmap, profile, today,
         classes=state["classes"] or [], has_timetable=state["classes"] is not None, assumed=state["assumed"],
-        trust=TRUST, warnings=state["warnings"], analysis_id=analysis_id, answers=state["answers"],
-        progress=state["progress"]))
+        trust=TRUST, analysis_id=analysis_id, answers=state["answers"]))
+
+
+def json_list(text: str | None) -> list:
+    try:
+        value = json.loads(text or "[]")
+    except json.JSONDecodeError:
+        return []
+    return value if isinstance(value, list) else []
+
+
+@app.get("/")
+def index():
+    return app.send_static_file("index.html")
+
+
+@app.get("/api/health")
+def health():
+    return {"ok": True, "engine": "v3"}
 
 
 @app.post("/api/analyze")
@@ -136,10 +147,6 @@ def analyze():
         hours = min(60, max(1, int(f.get("hours", 12))))
     except ValueError:
         hours = 12
-    try:
-        skills = json.loads(f.get("skills") or "[]")
-    except json.JSONDecodeError:
-        skills = []
     img = request.files.get("timetable")
     if img and img.mimetype not in IMG_TYPES:
         return jsonify(error="시간표는 PNG, JPG 이미지만 올릴 수 있어요."), 400
@@ -147,49 +154,24 @@ def analyze():
 
     today = datetime.now(KST).date()
     profile, assumed = adapter.to_profile(
-        {"major": f.get("major", ""), "hours": hours, "busy": f.get("busy", ""), "skills": skills,
-         "exp": f.get("exp", ""), "team": f.get("team", "팀 없음"), "school": f.get("school", ""),
-         "region": f.get("region", ""), "status": f.get("status", ""), "age": f.get("age", ""),
-         "goal": f.get("goal", "")}, today)
+        {"major": f.get("major", ""), "hours": hours, "busy": f.get("busy", ""), "skills": json_list(f.get("skills")),
+         "mate_skills": json_list(f.get("mate_skills")), "exp": f.get("exp", ""), "team": f.get("team", "팀 없음"),
+         "school": f.get("school", ""), "region": f.get("region", ""), "status": f.get("status", ""),
+         "age": f.get("age", ""), "goal": f.get("goal", "")}, today)
 
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         classes_job = pool.submit(timetable_classes, image, img.mimetype) if image else None
         try:
-            notice, warnings = read_notice(posting, today)
-        except intake.IntakeError as error:
+            card = notice_card(posting, today)
+        except CardError as error:
             return jsonify(error=str(error)), 400
         except Exception as error:
             log.exception(error)
-            return jsonify(error="공고를 읽는 중에 문제가 생겼어요. 잠시 후 다시 시도해 주세요."), 502
-        generic_job = pool.submit(generic_plan, dict(notice), today)  # judge가 notice에 자격 조건을 써 넣으므로 복사본
-        try:
-            client, model = llm()
-            result = judge(client, model, notice, profile, today)
-        except Exception as error:
-            log.exception(error)
-            return jsonify(error="분석에 실패했어요. 잠시 후 다시 시도해 주세요."), 502
-        generic = generic_job.result()
+            return jsonify(error="공고를 분석하지 못했어요. 잠시 후 다시 시도해 주세요."), 502
         classes = classes_job.result() if classes_job else None
 
-    state = {"notice": notice, "profile": profile, "raw": result.raw, "today": today, "generic": generic,
-             "classes": classes, "assumed": assumed, "warnings": warnings, "answers": {}, "progress": {}}
-    return respond(remember(state), state, result)
-
-
-def recompute(state: dict):
-    """LLM 작업 분해는 그대로 두고 코드로 판정·일정을 다시 계산한다. 조언 문장만 LLM으로 다시 쓴다."""
-    today = datetime.now(KST).date()
-    state["today"] = today
-    if state["notice"].get("deadline") and date.fromisoformat(state["notice"]["deadline"]) < today:
-        return judge(None, "", state["notice"], state["profile"], today)  # 마감 지남: LLM을 부르지 않고 끝난다
-    result = evaluate(state["notice"], state["profile"], state["raw"], today, state["answers"] or None,
-                      state["progress"] or None)
-    try:
-        client, model = llm()
-        advise(client, model, state["notice"], state["profile"], result, today)
-    except Exception as error:  # 조언 문장이 없어도 판정과 일정은 보여 준다
-        log.warning("advice: %s", error)
-    return result
+    state = {"card": card, "profile": profile, "classes": classes, "assumed": assumed, "answers": {}, "progress": {}}
+    return respond(remember(state), state)
 
 
 def session_or_error(body: dict):
@@ -201,30 +183,32 @@ def session_or_error(body: dict):
 
 @app.post("/api/rejudge")
 def rejudge():
-    """자격 확인 질문에 예/아니오로 답하면 그 답을 프로필보다 우선해 다시 판정한다."""
+    """자격 확인 질문에 예/아니오로 답하면 그 답을 프로필보다 우선해 다시 판정한다(LLM 없음)."""
     body = request.get_json(silent=True) or {}
     state, error = session_or_error(body)
     if error:
         return error
-    answers = body.get("answers") or {}
-    state["answers"] = {str(q): bool(a) for q, a in answers.items() if a is not None}
-    return respond(body["id"], state, recompute(state))
+    state["answers"] = {str(q): bool(a) for q, a in (body.get("answers") or {}).items() if a is not None}
+    return respond(body["id"], state)
 
 
 @app.post("/api/replan")
 def replan():
-    """하루별 할 일에서 체크한 시간을 빼고 남은 작업으로 판정과 일정을 다시 짠다."""
+    """하루별 할 일에서 체크한 단계의 시간을 빼고 남은 일을 다시 배치한다(LLM 없음).
+    done: [[단계 키, 시간], ...]  단계 키는 '제출물 / 단계'(roadmap.step_key)."""
     body = request.get_json(silent=True) or {}
     state, error = session_or_error(body)
     if error:
         return error
-    for name, hours in body.get("done") or []:
+    for key, hours in body.get("done") or []:
         try:
-            state["progress"][str(name)] = state["progress"].get(str(name), 0.0) + max(0.0, float(hours))
+            state["progress"][str(key)] = state["progress"].get(str(key), 0.0) + max(0.0, float(hours))
         except (TypeError, ValueError):
             continue
-    return respond(body["id"], state, recompute(state))
+    return respond(body["id"], state)
 
+
+__all__ = ["app", "step_key"]
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))

@@ -26,29 +26,27 @@ uv run streamlit run demo/app.py
 
 ## FourDo 웹 (프론트 + 백엔드)
 
-`backend/static/`의 프론트 화면을 Flask 서버(`backend/app.py`)가 띄웁니다. 판정은 위와 같은 PODO 엔진을 씁니다.
+`backend/static/`의 화면을 Flask 서버(`backend/app.py`)가 띄웁니다. 설계는 [docs/백엔드_설계_v3.md](docs/백엔드_설계_v3.md).
 
 ```bash
 uv sync --extra timetable   # 시간표 이미지 읽기(Gemini)를 쓸 때만 --extra timetable
-cp .env.example .env        # OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL (+ 시간표용 GEMINI_API_KEY, 선택)
+cp .env.example .env        # OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL, CARD_MODEL (+ 시간표용 GEMINI_API_KEY, 선택)
 uv run python backend/app.py   # http://localhost:5000
 ```
 
+**LLM은 선택지를 만들고, 코드가 고른다.**
+
 | 단계 | 누가 | 하는 일 |
 |---|---|---|
-| 공고 읽기 | LLM | 링크(모집요강·첨부파일 따라가기)나 본문을 구조화 |
-| 자격·팀·시간·판정·일정 | 코드 | `feasibility.judge` — 자격 조건 비교, 가용 시간, 4단계 판정, 작업 배치 |
-| 작업 나누기, 조언 문장 | LLM | 제출물을 작업과 소요 시간으로 나누고, 계산된 결과를 문장으로 |
-| 개인화 비교 | LLM + 코드 | 프로필 없이 짠 일반 계획을 같은 모델로 만들고, 내 일정과 부딪히는 정도는 코드가 셈 |
-| 시간표 | LLM(선택) | 에브리타임 시간표 이미지에서 수업만 추출, 할 일은 코드가 수업을 피해 배치 |
+| 공고 카드 | LLM 1회(`CARD_MODEL`) | 기본 정보·자격 조건·평가 기준 + 제출물마다 만드는 방법 3~5개(최소/표준/차별화, 필요 역량·수준, 단계별 작업). 원문이 같으면 저장한 카드를 다시 씀 |
+| 맞춤 전략 | 코드(`strategy.py`) | 본인·팀원 역량과 목표로 방법을 고르고, 시간이 모자라면 한 단계씩 낮춤. 판정 |
+| 로드맵 | 코드(`roadmap.py`) | 고르게 배치, 한 번에 최소 1시간, 못 쓰는 날 건너뛰기, 마감 전 여유 기간, 중간 목표 |
+| 화면 변환 | 코드(`backend/adapter.py`) | 전략 카드, 주차별·하루별 할 일(시간표가 있으면 수업을 피해서), 개인화 OFF/ON 비교 |
+| 시간표 | LLM(선택) | 에브리타임 시간표 이미지에서 수업만 추출 |
 
-화면에서 할 수 있는 일
-- 프로필(학교·거주 지역·신분·나이, 역량별 수준, 목표 포함)은 브라우저에만 저장돼 다음에 다시 입력하지 않아도 됩니다.
-- 프로필만으로 확인할 수 없는 자격 조건은 **예/아니오 질문**으로 나오고, 답하면 다시 판정합니다(`/api/rejudge`).
-- 하루별 할 일에서 끝낸 일을 체크하고 **다시 짜기**를 누르면 그만큼 빼고 남은 일정을 다시 계산합니다(`/api/replan`).
-- 재판정·다시 짜기는 처음 분석의 작업 분해를 그대로 쓰고 코드로만 다시 계산합니다(조언 문장만 LLM). 분석 기록은 서버 메모리에 잠깐 보관하므로 서버를 다시 켜면 다시 분석해야 합니다.
-
-프론트 입력을 엔진 프로필로 바꿀 때의 가정(`backend/adapter.py`): 주당 시간은 평일 하루 : 주말 하루 = 1 : 2로 나누고, 바쁜 일정은 날짜가 있는 것만 못 쓰는 기간으로 봅니다. '팀원 1~2명 있음'은 2명, '팀 구성 완료'는 3명으로 봅니다.
+재판정(자격 질문에 답하기)과 다시 짜기(끝낸 일 체크)는 카드를 다시 써서 코드만 돌리므로 즉시 끝납니다.
+가정한 값: 주당 시간은 평일 하루 : 주말 하루 = 1 : 2, 기획·글쓰기·발표 '입문'은 누구나, 팀원 역량은 '가능',
+한 단계 모자란 역량은 시간 1.5배, 첫 참가는 1.2배, 가용의 85%를 넘게 쓰면 빠듯함, 여유 기간은 작업일의 10%.
 
 ## 웹 배포 (Streamlit Community Cloud)
 
@@ -84,6 +82,7 @@ uv run python scripts/compare_personalization.py       # A 개인화 없음 / B 
 |---|---|
 | `demo/` | Streamlit 데모 |
 | `backend/` | FourDo 웹: Flask 서버(`app.py`), 엔진 결과 ↔ 화면 JSON 변환(`adapter.py`), 화면(`static/`) |
+| `src/aihack4/card.py`, `strategy.py`, `roadmap.py` | 설계 v3 엔진: 공고 카드(LLM), 맞춤 전략·로드맵(코드) |
 | `src/aihack4/feasibility.py` | 판정 엔진 (자격 조건 추출·비교, 작업 분해, 일정 계산) |
 | `src/aihack4/collector/` | 공고 가져오기(링크·파일·본문 → 구조화)와 자동 수집 에이전트 |
 | `src/aihack4/feasibility_eval.py`, `baselines.py`, `llm_runner.py` | 검증 로직, 비교 조건, 캐시·병렬 LLM 호출 |

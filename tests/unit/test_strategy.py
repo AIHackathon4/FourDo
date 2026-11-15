@@ -137,3 +137,8 @@ def test_same_tier_picks_path_matching_strength():
 
 def test_unpersonalized_uses_standard_for_everyone():
     assert picked(unpersonalized(card(), TODAY)) == ["사례 조사 기획서", "화면녹화+자막"]
+
+
+def test_closed_notice_is_hard_without_shrinking():
+    s = choose(card(deadline="2026-10-01"), student(), TODAY)
+    assert s.verdict == "어려움" and not any("낮췄어요" in r for c in s.choices for r in c.reasons)

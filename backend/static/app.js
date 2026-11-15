@@ -85,15 +85,20 @@ function setLevel(c, level) {
 }
 const pickedSkills = () => [...document.querySelectorAll("#skills .chip[aria-pressed=true]")].map(c => [c.dataset.name, c.dataset.level]);
 const picked = id => $(`#${id} .chip[aria-pressed=true]`).textContent;
-skillChips($("#skills"), ["기획", "디자인", "개발", "영상", "발표", "글쓰기"]);
+const SKILLS = ["기획", "디자인", "개발", "데이터·AI", "영상", "발표", "글쓰기"];
+skillChips($("#skills"), SKILLS);
 chips($("#team"), ["팀 없음", "팀원 1~2명 있음", "팀 구성 완료"], false);
+chips($("#mateSkills"), SKILLS, true);
+const pickedMates = () => [...document.querySelectorAll("#mateSkills .chip[aria-pressed=true]")].map(c => c.textContent);
+const syncMates = () => { $("#mateBox").hidden = picked("team") === "팀 없음"; };
+$("#team").addEventListener("click", syncMates);
 chips($("#goal"), ["경험 쌓기", "수상 목표"], false);
 
 /* 프로필은 이 브라우저에만 저장(공고는 저장하지 않음) */
 const PROFILE_KEY = "fourdo-profile";
 const PROFILE_FIELDS = ["major", "hours", "school", "region", "status", "age", "busy", "exp"];
 function saveProfile() {
-  const f = $("#form"), data = { skills: pickedSkills(), team: picked("team"), goal: picked("goal") };
+  const f = $("#form"), data = { skills: pickedSkills(), mates: pickedMates(), team: picked("team"), goal: picked("goal") };
   PROFILE_FIELDS.forEach(k => data[k] = f.elements[k].value);
   try { localStorage.setItem(PROFILE_KEY, JSON.stringify(data)); } catch {}
 }
@@ -105,6 +110,8 @@ function loadProfile() {
   PROFILE_FIELDS.forEach(k => { if (data[k] != null) f.elements[k].value = data[k]; });
   (data.skills || []).forEach(([name, level]) => { const c = $(`#skills .chip[data-name="${name}"]`); if (c) setLevel(c, level); });
   ["team", "goal"].forEach(id => document.querySelectorAll(`#${id} .chip`).forEach(c => c.setAttribute("aria-pressed", String(c.textContent === data[id]))));
+  document.querySelectorAll("#mateSkills .chip").forEach(c => c.setAttribute("aria-pressed", String((data.mates || []).includes(c.textContent))));
+  syncMates();
 }
 loadProfile();
 
@@ -133,6 +140,7 @@ async function analyze(fd) {
   fd.set("skills", JSON.stringify(pickedSkills()));
   fd.set("team", picked("team"));
   fd.set("goal", picked("goal"));
+  fd.set("mate_skills", JSON.stringify(picked("team") === "팀 없음" ? [] : pickedMates()));
   if (TT) fd.set("timetable", TT);
   try {
     const r = await fetch("/api/analyze", { method: "POST", body: fd });
@@ -179,6 +187,25 @@ $("#result").addEventListener("click", async e => {
   if (b) { const r = await recompute("/api/rejudge", { answers }, b); if (r) { show(r); go("result"); } }
 });
 
+/* 나의 맞춤 전략: 제출물마다 고른 방법, 이유, 다른 방법 */
+function strategyCard() {
+  const S = DATA.strategy || [];
+  if (!S.length) return "";
+  const who = w => Object.entries(w || {}).map(([k, v]) => `${k}: ${v}`).join(" · ");
+  return `<div class="card" id="strategy"><h3>나의 맞춤 전략</h3>
+    <p class="hint" style="margin:0 0 10px">같은 공고라도 내 역량·시간·목표에 맞춰 만드는 방법을 골랐어요. 고르는 건 코드가 해요.</p>
+    ${S.map(s => `<div class="req" style="align-items:start">
+      <span class="badge ${s.method ? (s.tier === "차별화" ? "met" : s.tier === "표준" ? "caution" : "needs_check") : "lacking"}">${s.tier || "불가"}</span>
+      <div><b>${s.submission}</b> · ${s.method ? `${s.method} (${s.hours}시간)` : "지금 역량으로는 만들 수 없어요"}
+        <small>${s.requirement || ""}</small>
+        ${s.how ? `<p style="margin:6px 0 0">${s.how}</p>` : ""}
+        ${s.steps.length ? `<small>단계: ${s.steps.map(x => `${x[0]} ${x[1]}h`).join(" → ")}</small>` : ""}
+        ${s.reasons.length ? `<ul class="plain" style="margin:6px 0 0">${s.reasons.map(r => `<li>${r}</li>`).join("")}</ul>` : ""}
+        ${who(s.who) ? `<small>맡는 사람 · ${who(s.who)}</small>` : ""}
+        ${s.alternatives.length ? `<small>다른 방법 · ${s.alternatives.map(a => `${a.name}(${a.tier}, ${a.hours}h${a.possible ? "" : ", " + a.why})`).join(" / ")}</small>` : ""}
+      </div><span class="badge src code">코드 판정</span></div>`).join("")}</div>`;
+}
+
 /* 결과 */
 function renderResult() {
   const d = DATA, dl = new Date(d.posting.deadline);
@@ -200,6 +227,7 @@ function renderResult() {
       ${d.requirements.map(r => `<div class="req"><span class="badge ${r.status}">${STATUS[r.status]}</span>
         <div>${r.label}<small>${r.criterion}</small></div><span class="badge src ${r.source}">${SRC[r.source]}</span></div>`).join("")}</div>
   </div>
+  ${strategyCard() ? `<div class="grid one" style="margin-top:0">${strategyCard()}</div>` : ""}
   ${questionsCard() ? `<div class="grid one" style="margin-top:0">${questionsCard()}</div>` : ""}
   <div class="grid" style="margin-top:0">
     <div class="card lime-card"><h3>이번 주 추천 작업</h3><b>${d.thisWeek.title}</b>
@@ -301,7 +329,7 @@ function progressNote() {
 }
 $("#daily").addEventListener("click", async e => {
   const b = e.target.closest("#replan"); if (!b) return;
-  const doneItems = [...done].map(key => { const [d, k] = key.split("-").map(Number); const t = DATA.daily[d].todos[k]; return [t[1], t[2]]; });
+  const doneItems = [...done].map(key => { const [d, k] = key.split("-").map(Number); const t = DATA.daily[d].todos[k]; return [t[3] || t[1], t[4] ?? t[2]]; });
   const r = await recompute("/api/replan", { done: doneItems }, b);
   if (r) { show(r); go("daily"); }
 });
