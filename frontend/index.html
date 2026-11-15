@@ -58,7 +58,7 @@
       <button type="button" class="drop" id="drop">시간표 캡처 이미지를 끌어다 놓거나 눌러서 선택하세요<br>수업 시간을 피해서 하루별 할 일을 짜드려요 (PNG, JPG)</button>
       <input id="tt" type="file" accept="image/*" hidden>
       <div class="prev" id="ttPrev" hidden><img id="ttImg" alt="업로드한 시간표 미리보기"><span id="ttName"></span><button type="button" id="ttDel">삭제</button></div>
-      <p class="hint">데모에서는 이미지를 아직 읽지 않고, 예시 시간표 기준 결과가 나와요.</p>
+      <p class="hint">이미지는 분석에만 쓰고 서버에 저장하지 않아요.</p>
     </div>
     <fieldset class="full">
       <legend>보유 역량</legend>
@@ -73,7 +73,7 @@
     </fieldset>
     <div class="full cta-row">
       <button class="btn lime" type="submit">내 도전 준비도 분석하기</button>
-      <p class="hint">데모 화면이에요. 지금은 연결 전이라 예시 결과가 나와요.</p>
+      <p class="hint">분석에는 10~30초 정도 걸려요. 준비도는 합격 확률이 아니에요.</p>
     </div>
   </form>
 </section>
@@ -85,7 +85,7 @@
     <h2>나의 도전 가능성을 분석하고 있어요.</h2>
     <ol class="steps" id="stepList"></ol>
     <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="bar"></i></div>
-    <p class="hint">데모 진행이에요. 실제 연결 후에는 작업 상태에 맞춰 표시돼요.</p>
+    <p class="hint">AI가 공고를 읽는 중이라 시간이 조금 걸릴 수 있어요.</p>
   </div>
 </section>
 
