@@ -124,9 +124,10 @@ function renderResult() {
       <div class="level">${d.readiness.label}</div>
       <ul class="plain">${d.readiness.reasons.map(r => `<li>${r}</li>`).join("")}</ul>
       <p class="hint">${d.readiness.disclaimer}</p>
-      <h3 style="margin-top:22px">시간 예산</h3>
+      <h3 style="margin-top:22px">시간 예상</h3>
       <div class="meter"><i style="width:${pct}%"></i></div>
-      <p class="hint">필요 ${t.min}~${t.max}시간 / 가용 ${t.available}시간 · AI가 예상한 준비에 필요한 시간이에요</p></div>
+      <p class="hint">필요 ${t.min}~${t.max}시간 /
+      가용 ${t.available}시간 · AI가 예상한 준비에 필요한 시간이에요</p></div>
     <div class="card"><h3>지원 조건 충족 여부</h3>
       ${d.requirements.map(r => `<div class="req"><span class="badge ${r.status}">${STATUS[r.status]}</span>
         <div>${r.label}<small>${r.criterion}</small></div><span class="badge src ${r.source}">${SRC[r.source]}</span></div>`).join("")}</div>
