@@ -295,7 +295,7 @@ def build(ai, now, hours, has_tt):
             "time": {"min": t["min"], "max": t["max"], "available": hours * weeks_left},
             "thisWeek": ai.get("thisWeek", {}), "blockers": ai.get("blockers", []),
             "weeks": ai.get("weeks", []), "fallbacks": ai.get("fallbacks", []),
-            "compare": ai.get("compare", {}), "trust": [], "daily": daily}
+            "compare": ai.get("compare", {}), "daily": daily}
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
