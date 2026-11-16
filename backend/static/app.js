@@ -27,13 +27,7 @@ let DATA = {
     genericNote: "언제, 얼마나, 무엇부터인지 알 수 없어요",
     mine: [["이번 주", "주제 후보 3개 · 약 6시간"], ["2주차", "중간고사 주간이라 쉬어가요"], ["3~4주차", "영상 경험이 없어 튜토리얼 4h 먼저"]],
     mineNote: "3학년 · 주 12시간 · 기획 가능 · 팀 없음 반영 (예시)"
-  },
-  trust: [
-    { name: "공고 자격 요건 추출 정확도" },
-    { name: "제출물 및 준비 작업 추출 정확도" },
-    { name: "마감일 및 일정 계산 정확도" },
-    { name: "개인화 실행 계획 적합도" }
-  ]
+  }
 };
 /* 하루별 할 일 (데모). 실제 연결 시: 시간표 이미지 → 수업 시간 추출 → 코드가 남는 시간 계산 → AI가 할 일 배치 */
 DATA.daily = [
@@ -52,7 +46,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const demo = () => DATA.meta.is_demo ? '<span class="badge demo">예시</span>' : "";
 
 /* 화면 전환 */
-const NAV_OF = { trust: "trust", history: "history", login: "login" };
+const NAV_OF = { history: "history", login: "login" };
 function go(id) {
   if (id === "login" && USER) return go("input");
   if (id === "history") {
@@ -124,9 +118,10 @@ function renderResult() {
       <div class="level">${d.readiness.label}</div>
       <ul class="plain">${d.readiness.reasons.map(r => `<li>${r}</li>`).join("")}</ul>
       <p class="hint">${d.readiness.disclaimer}</p>
-      <h3 style="margin-top:22px">시간 예산</h3>
+      <h3 style="margin-top:22px">시간 예상</h3>
       <div class="meter"><i style="width:${pct}%"></i></div>
-      <p class="hint">필요 ${t.min}~${t.max}시간 / 가용 ${t.available}시간 · AI가 예상한 준비에 필요한 시간이에요</p></div>
+      <p class="hint">필요 ${t.min}~${t.max}시간 /
+      가용 ${t.available}시간 · AI가 예상한 준비에 필요한 시간이에요</p></div>
     <div class="card"><h3>지원 조건 충족 여부</h3>
       ${d.requirements.map(r => `<div class="req"><span class="badge ${r.status}">${STATUS[r.status]}</span>
         <div>${r.label}<small>${r.criterion}</small></div><span class="badge src ${r.source}">${SRC[r.source]}</span></div>`).join("")}</div>
@@ -170,19 +165,7 @@ document.querySelector(".toggle").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) renderCompare(b.dataset.p === "on");
 });
 
-/* 서비스 신뢰도: 실제 검수 결과가 없으면 '측정 전'으로 표시 (수치를 지어내지 않아요) */
-function renderTrust() {
-  $("#trust").innerHTML = `
-  <div class="hero dark"><h1>AI의 분석, 어디까지 믿을 수 있을까요?</h1>
-    <p class="lime-line">실제 검수 결과와 합성 테스트 결과는 따로 보여드려요.</p></div>
-  <div class="wrap page-pad"><div class="card" style="margin-top:-56px">
-    <div class="metric mh"><span>항목</span><span>실제 검수</span><span>합성 테스트</span></div>
-    ${DATA.trust.map(m => `<div class="metric"><b>${m.name}</b>
-      <span class="v">${m.real ?? "측정 전"}</span>
-      <span class="v">${m.synth ?? "측정 전"}</span></div>`).join("")}
-    <p class="hint">검수가 끝나는 대로 결과를 공개해요.</p></div></div>`;
-}
-/* 에브리타임 시간표 업로드 */
+/* 에브리타임 시간표 (이미지로)업로드 */
 let TT = null, dayIdx = 0; const done = new Set();
 function setTT(f) {
   if (f && !f.type.startsWith("image/")) { alert("이미지 파일(PNG, JPG)만 올릴 수 있어요."); return; }
@@ -336,4 +319,4 @@ $("#history").addEventListener("click", async e => {
   }
 });
 
-renderTrust(); renderCompare(true); renderAcct(); go("input"); loadMe();
+renderCompare(true); renderAcct(); go("input"); loadMe();
